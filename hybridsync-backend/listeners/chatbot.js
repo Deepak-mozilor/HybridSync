@@ -94,7 +94,7 @@ function register(app) {
     if (!question) return;
 
     try {
-      const reply = await chat(message.user, question);
+      const reply = await chat(message.user, question, client);
       if (reply) {
         await client.chat.postMessage({ channel: message.channel, text: reply });
       }

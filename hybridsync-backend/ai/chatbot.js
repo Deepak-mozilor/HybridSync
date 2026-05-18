@@ -1,6 +1,7 @@
 const db = require('../db');
 const { upcomingWorkDays, todayKey } = require('../utils/dates');
 const { runAgentLoop } = require('./provider');
+const orchestrator = require('./orchestrator');
 
 // Per-user conversation history (in-memory, resets on restart).
 // Stores plain text exchanges only — no tool call payloads.
@@ -56,7 +57,7 @@ const TOOLS = [
   },
 ];
 
-async function chat(requestingUserId, userMessage) {
+async function chat(requestingUserId, userMessage, slackClient) {
   const week  = upcomingWorkDays(5);
   const today = todayKey();
   const weekContext = week.map(w => `${w.day} ${w.dateKey}`).join(', ');
@@ -118,6 +119,9 @@ SLACK FORMATTING RULES (strictly follow these):
 
       case 'set_my_status': {
         await db.setStatus(requestingUserId, input.date, input.status);
+        if (input.date === todayKey()) {
+          orchestrator.run(requestingUserId, input.date, input.status, slackClient).catch(() => {});
+        }
         return JSON.stringify({ updated: true, date: input.date, status: input.status });
       }
 

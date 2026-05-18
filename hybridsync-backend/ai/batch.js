@@ -205,6 +205,12 @@ Include both directions (A->B and B->A).`;
     const parsed = JSON.parse(clean);
     const edges  = Array.isArray(parsed) ? parsed : (parsed.dependencies || parsed.edges || []);
 
+    // Wipe all existing edges first so stale scores don't persist for users
+    // who had zero interactions in this window.
+    const { createClient } = require('@supabase/supabase-js');
+    const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_KEY);
+    await supabase.from('dependencies').delete().neq('user_id', '');
+
     const byUser = {};
     for (const e of edges) {
       if (!byUser[e.userId]) byUser[e.userId] = [];

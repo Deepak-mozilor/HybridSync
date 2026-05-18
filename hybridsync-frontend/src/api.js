@@ -27,3 +27,10 @@ export async function updateAnchor(teamId, anchorDays) {
 export async function syncTeams() {
   return (await fetch(`${BASE}/sync-teams`, { method: 'POST' })).json();
 }
+
+export async function recalculateDeps() {
+  const res = await fetch(`${BASE}/recalculate-deps`, { method: 'POST' });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || 'Recalculation failed');
+  return data;
+}

@@ -117,18 +117,6 @@ async function ensureUser(userId, { displayName } = {}) {
   const { error } = await supabase.from('users').insert(row);
   if (error) throw new Error(`ensureUser insert: ${error.message}`);
 
-  // Auto-link into the demo dependency graph
-  await supabase.from('dependencies').insert([
-    { user_id: userId, peer_id: 'U0B3PJ1QP1B', score: 8 },
-    { user_id: userId, peer_id: 'U0B3WJ5RQ3W', score: 7 },
-  ]);
-
-  // Add reverse edges so Deepak and Jithu see this user in Core Collaborators
-  await supabase.from('dependencies').upsert([
-    { user_id: 'U0B3PJ1QP1B', peer_id: userId, score: 8 },
-    { user_id: 'U0B3WJ5RQ3W', peer_id: userId, score: 7 },
-  ], { onConflict: 'user_id,peer_id', ignoreDuplicates: true });
-
   return toUser(row);
 }
 

@@ -1,6 +1,8 @@
 const db = require('../db');
 const { buildOverrideModal, parseModalValues } = require('../views/overrideModal');
 const { publishHome } = require('../views/appHome');
+const { notifyDependents } = require('../services/notifications');
+const { todayKey } = require('../utils/dates');
 
 const LOADING_VIEW = {
   type:      'modal',
@@ -38,9 +40,13 @@ function register(app) {
     await ack();
     try {
       const userId  = body.user.id;
+      const today   = todayKey();
       const updates = parseModalValues(view);
       for (const [dateKey, status] of Object.entries(updates)) {
         await db.setStatus(userId, dateKey, status);
+        notifyDependents(client, userId, dateKey, status).catch(e =>
+          logger.error('[Override] notifyDependents error:', e)
+        );
       }
       await publishHome(client, userId);
 

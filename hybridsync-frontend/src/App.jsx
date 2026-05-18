@@ -2,7 +2,7 @@ import { useState } from 'react';
 import GodView    from './views/GodView';
 import SquadView  from './views/SquadView';
 import LoginPage  from './views/LoginPage';
-import { syncTeams } from './api';
+import { syncTeams, recalculateDeps } from './api';
 
 const TABS = [
   { id: 'god',   label: 'HR God View',       icon: '🏢', roles: ['hr'] },
@@ -23,8 +23,10 @@ export default function App() {
     return stored?.role === 'manager' ? 'squad' : 'god';
   });
   const [focusTeam, setFocusTeam] = useState(null);
-  const [syncing,   setSyncing]   = useState(false);
-  const [syncMsg,   setSyncMsg]   = useState(null);
+  const [syncing,      setSyncing]      = useState(false);
+  const [syncMsg,      setSyncMsg]      = useState(null);
+  const [recalculating, setRecalculating] = useState(false);
+  const [recalcMsg,    setRecalcMsg]    = useState(null);
 
   function handleLogin(authData) {
     setAuth(authData);
@@ -44,6 +46,20 @@ export default function App() {
   }
 
   if (!auth) return <LoginPage onLogin={handleLogin} />;
+
+  async function handleRecalculate() {
+    setRecalculating(true);
+    setRecalcMsg(null);
+    try {
+      await recalculateDeps();
+      setRecalcMsg('✓ Dependencies recalculated');
+    } catch {
+      setRecalcMsg('Recalculation failed');
+    } finally {
+      setRecalculating(false);
+      setTimeout(() => setRecalcMsg(null), 4000);
+    }
+  }
 
   async function handleSync() {
     setSyncing(true);
@@ -83,19 +99,33 @@ export default function App() {
           ))}
         </nav>
         <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 10 }}>
-          {syncMsg && <span style={{ fontSize: 12, color: '#22c55e' }}>{syncMsg}</span>}
+          {syncMsg   && <span style={{ fontSize: 12, color: '#22c55e' }}>{syncMsg}</span>}
+          {recalcMsg && <span style={{ fontSize: 12, color: '#22c55e' }}>{recalcMsg}</span>}
           {auth.role === 'hr' && (
-            <button
-              onClick={handleSync}
-              disabled={syncing}
-              style={{
-                fontSize: 12, padding: '5px 14px', borderRadius: 6, cursor: 'pointer',
-                border: '1.5px solid #6366f1', background: syncing ? '#eef2ff' : '#6366f1',
-                color: syncing ? '#6366f1' : '#fff', fontWeight: 600,
-              }}
-            >
-              {syncing ? 'Syncing…' : '⟳ Sync Teams from Slack'}
-            </button>
+            <>
+              <button
+                onClick={handleRecalculate}
+                disabled={recalculating}
+                style={{
+                  fontSize: 12, padding: '5px 14px', borderRadius: 6, cursor: 'pointer',
+                  border: '1.5px solid #10b981', background: recalculating ? '#ecfdf5' : '#10b981',
+                  color: recalculating ? '#10b981' : '#fff', fontWeight: 600,
+                }}
+              >
+                {recalculating ? 'Recalculating…' : '⟳ Recalculate Dependencies'}
+              </button>
+              <button
+                onClick={handleSync}
+                disabled={syncing}
+                style={{
+                  fontSize: 12, padding: '5px 14px', borderRadius: 6, cursor: 'pointer',
+                  border: '1.5px solid #6366f1', background: syncing ? '#eef2ff' : '#6366f1',
+                  color: syncing ? '#6366f1' : '#fff', fontWeight: 600,
+                }}
+              >
+                {syncing ? 'Syncing…' : '⟳ Sync Teams from Slack'}
+              </button>
+            </>
           )}
           <span style={{ fontSize: 12, color: '#6b7280', fontWeight: 500 }}>
             {auth.role === 'hr' ? '🏢' : '👥'} {auth.name}

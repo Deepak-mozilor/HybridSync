@@ -180,6 +180,18 @@ app.get('/api/oauth/callback', async (req, res) => {
   }
 });
 
+// POST /api/recalculate-deps — rebuild dependency graph from last 30 days of Slack interactions
+app.post('/api/recalculate-deps', async (req, res) => {
+  if (!slackClient) return res.status(503).json({ error: 'Slack client not initialised yet' });
+  try {
+    const { runWeeklyMapping } = require('./ai/batch');
+    await runWeeklyMapping(slackClient);
+    res.json({ ok: true });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
 // POST /api/sync-teams — pull all channels the bot is in and create/update teams
 app.post('/api/sync-teams', async (req, res) => {
   if (!slackClient) return res.status(503).json({ error: 'Slack client not initialised yet' });

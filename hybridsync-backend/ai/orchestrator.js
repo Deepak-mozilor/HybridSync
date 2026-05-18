@@ -9,12 +9,11 @@ const SYSTEM_PROMPT = `You are HybridSync's scheduling orchestrator. Your sole g
 
 When a team member changes their work location, you must:
 1. Use get_dependency_graph to identify their high-priority collaborators (score >= 7).
-2. For each high-priority collaborator, decide whether sending a negotiation DM is warranted.
-3. Only call update_schedule_db when a definitive schedule change is clearly the right action.
+2. If a collaborator's schedule would clearly benefit from being updated to match, use update_schedule_db.
+3. Only call update_schedule_db when a definitive schedule change is clearly the right action — not speculatively.
 
 Constraints:
-- Only reach out to collaborators with dependency score >= 7.
-- Send at most 3 negotiation DMs per trigger event to avoid alert fatigue.
+- Only act on collaborators with dependency score >= 7.
 - When all necessary actions are complete, stop — do not call extra tools.`;
 
 const TOOLS = [
@@ -27,21 +26,6 @@ const TOOLS = [
         userId: { type: 'string', description: 'Slack user ID to fetch dependencies for.' },
       },
       required: ['userId'],
-    },
-  },
-  {
-    name: 'send_slack_negotiation',
-    description: 'Sends an interactive Block Kit DM to a Slack user proposing a schedule adjustment because a key collaborator changed their status. Use for dependency score >= 7.',
-    input_schema: {
-      type: 'object',
-      properties: {
-        targetUserId:     { type: 'string',  description: 'Slack user ID to DM.' },
-        triggeringUserId: { type: 'string',  description: 'Slack user ID who changed their status.' },
-        dependencyScore:  { type: 'number',  description: 'Dependency score 1-10.' },
-        date:             { type: 'string',  description: 'Date in YYYY-MM-DD format.' },
-        triggeringStatus: { type: 'string',  description: 'New status: WFH, Office, or Sick.' },
-      },
-      required: ['targetUserId', 'triggeringUserId', 'dependencyScore', 'date', 'triggeringStatus'],
     },
   },
   {
@@ -59,9 +43,7 @@ const TOOLS = [
   },
 ];
 
-const STATUS_EMOJI = { WFH: '🏠', Office: '🏢', Sick: '🤒', Leave: '🌴' };
-
-function makeExecTool(slackClient) {
+function makeExecTool() {
   return async function execTool(toolName, input) {
     console.log(`[Orchestrator] → ${toolName}(${JSON.stringify(input)})`);
 
@@ -69,54 +51,6 @@ function makeExecTool(slackClient) {
       case 'get_dependency_graph': {
         const edges = await db.getDependencyGraph(input.userId);
         return JSON.stringify(edges);
-      }
-
-      case 'send_slack_negotiation': {
-        const { targetUserId, triggeringUserId, dependencyScore, date, triggeringStatus } = input;
-        // Seed users (U_AZHAR, U_ANLIYA, …) aren't real Slack accounts — skip.
-        if (!/^U[A-Z0-9]+$/.test(targetUserId)) {
-          console.log(`[Orchestrator] Skipping DM to seed user ${targetUserId}`);
-          return JSON.stringify({ skipped: true, reason: 'seed user — no real Slack channel' });
-        }
-        const emoji = STATUS_EMOJI[triggeringStatus] || '📅';
-        const ctx = JSON.stringify({ triggeringUserId, date, targetUserId });
-
-        await slackClient.chat.postMessage({
-          channel: targetUserId,
-          text: `<@${triggeringUserId}> switched to ${triggeringStatus} ${emoji}. Want to adjust your schedule?`,
-          blocks: [
-            {
-              type: 'header',
-              text: { type: 'plain_text', text: '🤝 HybridSync: Schedule Coordination', emoji: true },
-            },
-            {
-              type: 'section',
-              text: {
-                type: 'mrkdwn',
-                text: `<@${triggeringUserId}> just switched to *${triggeringStatus} ${emoji}* on *${date}*.\nYour collaboration score: *${dependencyScore}/10*\n\nWould you like to adjust your schedule for today?`,
-              },
-            },
-            {
-              type: 'actions',
-              elements: [
-                {
-                  type: 'button',
-                  text: { type: 'plain_text', text: '🏠 Switch to WFH', emoji: true },
-                  style: 'primary',
-                  value: ctx,
-                  action_id: 'negotiation_switch_wfh',
-                },
-                {
-                  type: 'button',
-                  text: { type: 'plain_text', text: '🏢 Stay in Office', emoji: true },
-                  value: ctx,
-                  action_id: 'negotiation_stay_office',
-                },
-              ],
-            },
-          ],
-        });
-        return JSON.stringify({ sent: true, targetUserId });
       }
 
       case 'update_schedule_db': {
@@ -134,7 +68,7 @@ async function run(triggeringUserId, date, newStatus, slackClient) {
   const userMessage = `User ${triggeringUserId} just changed their status to ${newStatus} on ${date}. Analyze their dependency graph and take all necessary actions to minimize collaboration loss.`;
 
   try {
-    await runAgentLoop(SYSTEM_PROMPT, userMessage, TOOLS, makeExecTool(slackClient));
+    await runAgentLoop(SYSTEM_PROMPT, userMessage, TOOLS, makeExecTool());
   } catch (err) {
     console.error('[Orchestrator] Error:', err.message);
   }

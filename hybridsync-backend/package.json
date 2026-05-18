@@ -1,0 +1,30 @@
+{
+  "name": "hybridsync-backend",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "start": "node app.js",
+    "dev": "node --watch app.js",
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "seed:conversations": "node scripts/seedConversations.js",
+    "run:weekly-mapping": "node -e \"require('dotenv').config(); require('./ai/batch').runWeeklyMapping()\"",
+    "run:daily-sweep": "node -e \"require('dotenv').config(); require('./ai/batch').runDailySweep()\""
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.96.0",
+    "@slack/bolt": "^4.7.2",
+    "@supabase/supabase-js": "^2.105.4",
+    "cors": "^2.8.6",
+    "dotenv": "^17.4.2",
+    "express": "^5.2.1",
+    "firebase-admin": "^13.10.0",
+    "jsonwebtoken": "^9.0.3",
+    "node-cron": "^4.2.1",
+    "openai": "^6.37.0"
+  }
+}

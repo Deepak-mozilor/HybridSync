@@ -72,7 +72,7 @@ Upcoming work days: ${weekContext}
 Guidelines:
 - To look someone up by name, ALWAYS call find_user first, then get_user_schedule with their userId.
 - Use get_team_schedule for broad team overview questions.
-- Use set_my_status only when the user explicitly wants to change their own schedule. Only today or future dates are allowed — never set status for a past date.
+- Use set_my_status only when the user explicitly wants to change their own schedule. Only today up to 1 month ahead is allowed — never set status for a past date or more than 1 month in the future.
 - Reply conversationally and concisely. Use emojis: 🏠 WFH · 🏢 Office · 🤒 Sick · 🌴 Leave.
 - If a user asks about "Wednesday", resolve it using the upcoming work days listed above.
 - Never make up schedule data — always call a tool to retrieve it.
@@ -119,8 +119,14 @@ SLACK FORMATTING RULES (strictly follow these):
       }
 
       case 'set_my_status': {
+        const maxDate = new Date(); maxDate.setMonth(maxDate.getMonth() + 1);
+        const { toKey } = require('../utils/dates');
+        const maxKey = toKey(maxDate);
         if (input.date < todayKey()) {
           return JSON.stringify({ error: `Cannot update status for a past date (${input.date}). Only today or future dates are allowed.` });
+        }
+        if (input.date > maxKey) {
+          return JSON.stringify({ error: `Cannot update status more than 1 month in advance (${input.date}). Please choose a date on or before ${maxKey}.` });
         }
         await db.setStatus(requestingUserId, input.date, input.status);
         notifyDependents(slackClient, requestingUserId, input.date, input.status).catch(e =>

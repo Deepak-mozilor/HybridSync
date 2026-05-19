@@ -20,7 +20,7 @@ const DEFAULT_WEEK = {
 // Teams are created dynamically from Slack channels via POST /api/sync-teams
 const teams = {};
 
-// Real Slack users first, then demo fill-ins.
+// Real Slack users seeded on first run.
 const seedUsers = [
   {
     id: 'U0B3PJ1QP1B',       // real Slack user — Deepak (PM)
@@ -36,40 +36,15 @@ const seedUsers = [
     role: 'employee',
     week: { Mon: STATUS.OFFICE, Tue: STATUS.OFFICE, Wed: STATUS.WFH, Thu: STATUS.WFH, Fri: STATUS.WFH },
   },
-  {
-    id: 'U_RIYA',
-    displayName: 'Riya',
-    teamId: null,
-    role: 'employee',
-    week: { Mon: STATUS.WFH, Tue: STATUS.OFFICE, Wed: STATUS.WFH, Thu: STATUS.OFFICE, Fri: STATUS.OFFICE },
-  },
-  {
-    id: 'U_KARAN',
-    displayName: 'Karan',
-    teamId: null,
-    role: 'employee',
-    week: { Mon: STATUS.OFFICE, Tue: STATUS.WFH, Wed: STATUS.OFFICE, Thu: STATUS.WFH, Fri: STATUS.WFH },
-  },
 ];
 
-// Dependency edges (userId -> [{ peerId, score }]). Score 1-10.
-// Real users get high scores so negotiation DMs actually fire.
+// Dependency edges — seeded as a starting point, overwritten by weekly recalculation.
 const seedDependencies = {
-  U0B3PJ1QP1B: [       // Deepak (PM)
-    { peerId: 'U0B3WJ5RQ3W', score: 9 },  // Jithu — critical collaborator
-    { peerId: 'U_RIYA',      score: 7 },
-    { peerId: 'U_KARAN',     score: 4 },
+  U0B3PJ1QP1B: [
+    { peerId: 'U0B3WJ5RQ3W', score: 9 },
   ],
-  U0B3WJ5RQ3W: [       // Jithu
-    { peerId: 'U0B3PJ1QP1B', score: 9 },  // Deepak — critical collaborator
-    { peerId: 'U_RIYA',      score: 6 },
-  ],
-  U_RIYA: [
-    { peerId: 'U0B3PJ1QP1B', score: 7 },
-    { peerId: 'U0B3WJ5RQ3W', score: 6 },
-  ],
-  U_KARAN: [
-    { peerId: 'U0B3PJ1QP1B', score: 4 },
+  U0B3WJ5RQ3W: [
+    { peerId: 'U0B3PJ1QP1B', score: 9 },
   ],
 };
 

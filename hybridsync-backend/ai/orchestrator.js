@@ -1,16 +1,18 @@
 // The Agentic Brain — ReAct (Reason + Act) loop.
 // Works with Anthropic (claude-opus-4-7) or Groq (llama-3.3-70b-versatile).
-// Triggered whenever a user changes their status. Goal: minimize collaboration loss.
+// Triggered whenever a user changes their status today. Goal: minimize collaboration loss.
 
 const db = require('../db');
 const { runAgentLoop } = require('./provider');
+
+const STATUS_EMOJI = { WFH: '🏠', Office: '🏢', Sick: '🤒', Leave: '🌴' };
 
 const SYSTEM_PROMPT = `You are HybridSync's scheduling orchestrator. Your sole goal is to MINIMIZE COLLABORATION LOSS.
 
 When a team member changes their work location, you must:
 1. Use get_dependency_graph to identify their high-priority collaborators (score >= 7).
-2. If a collaborator's schedule would clearly benefit from being updated to match, use update_schedule_db.
-3. Only call update_schedule_db when a definitive schedule change is clearly the right action — not speculatively.
+2. For each high-priority collaborator whose current status differs, use send_negotiation_dm to let them decide whether to adjust.
+3. Only send a DM when collaboration loss is genuinely at risk — not speculatively.
 
 Constraints:
 - Only act on collaborators with dependency score >= 7.
@@ -29,21 +31,23 @@ const TOOLS = [
     },
   },
   {
-    name: 'update_schedule_db',
-    description: 'Writes a definitive status change to the database. Only use when the change is certain.',
+    name: 'send_negotiation_dm',
+    description: 'Sends a Slack DM to a collaborator letting them choose whether to adjust their schedule. Never silently changes their schedule.',
     input_schema: {
       type: 'object',
       properties: {
-        userId: { type: 'string' },
-        date:   { type: 'string', description: 'YYYY-MM-DD' },
-        status: { type: 'string', enum: ['WFH', 'Office', 'Sick', 'Leave'] },
+        triggeringUserId: { type: 'string', description: 'The user who changed their status.' },
+        peerId:           { type: 'string', description: 'The collaborator to notify.' },
+        date:             { type: 'string', description: 'YYYY-MM-DD' },
+        newStatus:        { type: 'string', enum: ['WFH', 'Office', 'Sick', 'Leave'] },
+        score:            { type: 'number', description: 'Collaboration score 1-10.' },
       },
-      required: ['userId', 'date', 'status'],
+      required: ['triggeringUserId', 'peerId', 'date', 'newStatus', 'score'],
     },
   },
 ];
 
-function makeExecTool() {
+function makeExecTool(slackClient) {
   return async function execTool(toolName, input) {
     console.log(`[Orchestrator] → ${toolName}(${JSON.stringify(input)})`);
 
@@ -53,9 +57,53 @@ function makeExecTool() {
         return JSON.stringify(edges);
       }
 
-      case 'update_schedule_db': {
-        await db.setStatus(input.userId, input.date, input.status);
-        return JSON.stringify({ updated: true, ...input });
+      case 'send_negotiation_dm': {
+        const { triggeringUserId, peerId, date, newStatus, score } = input;
+        if (!/^U[A-Z0-9]{6,}$/.test(peerId)) return JSON.stringify({ error: 'Invalid peerId' });
+
+        const peerStatus = await db.getStatusForDate(peerId, date);
+        if (peerStatus === newStatus) return JSON.stringify({ skipped: 'already same status' });
+
+        const emoji  = STATUS_EMOJI[newStatus] || '📅';
+        const peerCtx = JSON.stringify({ triggeringUserId, date, targetUserId: peerId });
+
+        await slackClient.chat.postMessage({
+          channel: peerId,
+          text: `<@${triggeringUserId}> switched to ${newStatus} ${emoji}. Want to adjust your schedule?`,
+          blocks: [
+            {
+              type: 'header',
+              text: { type: 'plain_text', text: '🤝 HybridSync: Schedule Coordination', emoji: true },
+            },
+            {
+              type: 'section',
+              text: {
+                type: 'mrkdwn',
+                text: `<@${triggeringUserId}> just switched to *${newStatus} ${emoji}* on *${date}*.\nYour collaboration score: *${score}/10*\n\nWould you like to adjust your schedule?`,
+              },
+            },
+            {
+              type: 'actions',
+              elements: [
+                {
+                  type: 'button',
+                  text: { type: 'plain_text', text: '🏠 Switch to WFH', emoji: true },
+                  style: 'primary',
+                  value: peerCtx,
+                  action_id: 'negotiation_switch_wfh',
+                },
+                {
+                  type: 'button',
+                  text: { type: 'plain_text', text: '🏢 Stay in Office', emoji: true },
+                  value: peerCtx,
+                  action_id: 'negotiation_stay_office',
+                },
+              ],
+            },
+          ],
+        });
+        console.log(`[Orchestrator] DM sent → ${peerId} about ${triggeringUserId} → ${newStatus}`);
+        return JSON.stringify({ sent: true, peerId });
       }
 
       default:
@@ -64,11 +112,11 @@ function makeExecTool() {
   };
 }
 
-async function run(triggeringUserId, date, newStatus) {
-  const userMessage = `User ${triggeringUserId} just changed their status to ${newStatus} on ${date}. Analyze their dependency graph and take all necessary actions to minimize collaboration loss.`;
+async function run(triggeringUserId, date, newStatus, slackClient) {
+  const userMessage = `User ${triggeringUserId} just changed their status to ${newStatus} on ${date}. Analyze their dependency graph and notify collaborators who may be impacted.`;
 
   try {
-    await runAgentLoop(SYSTEM_PROMPT, userMessage, TOOLS, makeExecTool());
+    await runAgentLoop(SYSTEM_PROMPT, userMessage, TOOLS, makeExecTool(slackClient));
   } catch (err) {
     console.error('[Orchestrator] Error:', err.message);
   }

@@ -116,12 +116,15 @@ function register(app) {
       await publishHome(client, message.user);
       console.log(`[Stream] ${displayName} (${message.user}) → ${hit.status} on ${dateKey}`);
 
-      notifyDependents(client, message.user, dateKey, hit.status).catch(e =>
-        logger.error('[Stream] notifyDependents error:', e)
-      );
       if (isToday) {
+        // Orchestrator handles today — sends negotiation DMs to collaborators.
         orchestrator.run(message.user, dateKey, hit.status, client).catch(e =>
           logger.error('[Orchestrator] Background error:', e)
+        );
+      } else {
+        // Future date — no orchestrator, notify dependents directly.
+        notifyDependents(client, message.user, dateKey, hit.status).catch(e =>
+          logger.error('[Stream] notifyDependents error:', e)
         );
       }
     } catch (err) {

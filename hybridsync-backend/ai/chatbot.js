@@ -72,7 +72,7 @@ Upcoming work days: ${weekContext}
 Guidelines:
 - To look someone up by name, ALWAYS call find_user first, then get_user_schedule with their userId.
 - Use get_team_schedule for broad team overview questions.
-- Use set_my_status only when the user explicitly wants to change their own schedule.
+- Use set_my_status only when the user explicitly wants to change their own schedule. Only today or future dates are allowed — never set status for a past date.
 - Reply conversationally and concisely. Use emojis: 🏠 WFH · 🏢 Office · 🤒 Sick · 🌴 Leave.
 - If a user asks about "Wednesday", resolve it using the upcoming work days listed above.
 - Never make up schedule data — always call a tool to retrieve it.
@@ -119,6 +119,9 @@ SLACK FORMATTING RULES (strictly follow these):
       }
 
       case 'set_my_status': {
+        if (input.date < todayKey()) {
+          return JSON.stringify({ error: `Cannot update status for a past date (${input.date}). Only today or future dates are allowed.` });
+        }
         await db.setStatus(requestingUserId, input.date, input.status);
         notifyDependents(slackClient, requestingUserId, input.date, input.status).catch(e =>
           console.error('[Notify] Chatbot notifyDependents error:', e.message)

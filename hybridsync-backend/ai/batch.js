@@ -172,10 +172,6 @@ Include both directions (A->B and B->A).`;
 async function getSimulatedInteractions() {
   return [
     { userA: 'U0B3PJ1QP1B', userB: 'U0B3WJ5RQ3W', messages: 87, replies: 45, reactions: 23 },
-    { userA: 'U0B3PJ1QP1B', userB: 'U_RIYA',       messages: 62, replies: 30, reactions: 18 },
-    { userA: 'U0B3WJ5RQ3W', userB: 'U_RIYA',        messages: 41, replies: 20, reactions: 12 },
-    { userA: 'U0B3PJ1QP1B', userB: 'U_KARAN',       messages: 15, replies:  6, reactions:  4 },
-    { userA: 'U0B3WJ5RQ3W', userB: 'U_KARAN',       messages:  8, replies:  2, reactions:  1 },
   ];
 }
 

@@ -64,7 +64,7 @@ function makeExecTool() {
   };
 }
 
-async function run(triggeringUserId, date, newStatus, slackClient) {
+async function run(triggeringUserId, date, newStatus) {
   const userMessage = `User ${triggeringUserId} just changed their status to ${newStatus} on ${date}. Analyze their dependency graph and take all necessary actions to minimize collaboration loss.`;
 
   try {

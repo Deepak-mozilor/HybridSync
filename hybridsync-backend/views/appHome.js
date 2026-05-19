@@ -25,7 +25,7 @@ function ctx(...texts) {
   return { type: 'context', elements: texts.map(t => ({ type: 'mrkdwn', text: t })) };
 }
 
-async function bestCollabDay(userId, week, schedule, highDeps) {
+function bestCollabDay(week, schedule, highDeps, peerMap) {
   if (!highDeps.length) return null;
 
   const dayScores = [];
@@ -37,11 +37,11 @@ async function bestCollabDay(userId, week, schedule, highDeps) {
     const colocated = [];
 
     for (const dep of highDeps) {
-      const peerStatus = await db.getStatusForDate(dep.peerId, dateKey);
-      if (peerStatus === userStatus) {
+      const peer = peerMap.get(dep.peerId);
+      if (!peer) continue;
+      if (peer.statusByDate[dateKey] === userStatus) {
         weightedScore += dep.score;
-        const peer = await db.getUser(dep.peerId);
-        if (peer) colocated.push(peer.displayName);
+        colocated.push(peer.user.displayName);
       }
     }
 
@@ -85,13 +85,26 @@ async function buildHomeView(userId) {
   const deps     = await db.getDependencyGraph(userId);
   const highDeps = deps.filter(d => d.score >= 7).sort((a, b) => b.score - a.score);
 
+  // --- Batched peer fetch — single parallel round trip for all peers ---
+  const weekDateKeys = week.map(w => w.dateKey);
+  const peerEntries = await Promise.all(highDeps.map(async dep => {
+    const [peerUser, peerSchedule] = await Promise.all([
+      db.getUser(dep.peerId),
+      db.getScheduleForDates(dep.peerId, weekDateKeys),
+    ]);
+    if (!peerUser) return null;
+    const statusByDate = Object.fromEntries(peerSchedule.map(s => [s.dateKey, s.status]));
+    return [dep.peerId, { user: peerUser, statusByDate }];
+  }));
+  const peerMap = new Map(peerEntries.filter(Boolean));
+
   // --- Slack status sync connection status ---
   const userToken     = await db.getUserToken(userId);
   const isConnected   = !!userToken;
   const oauthUrl      = buildConnectOAuthUrl(userId);
 
-  // --- Best collaboration day ---
-  const best = await bestCollabDay(userId, week, schedule, highDeps);
+  // --- Best collaboration day (in-memory, no DB calls) ---
+  const best = bestCollabDay(week, schedule, highDeps, peerMap);
 
   // --- Today block ---
   const todayBlock = {
@@ -147,12 +160,12 @@ async function buildHomeView(userId) {
     bestDayBlocks = [md('_No overlap found this week — schedules are out of sync._')];
   }
 
-  // --- Collaborator alert blocks ---
+  // --- Collaborator alert blocks (in-memory, no DB calls) ---
   const alertBlocks = [];
   for (const dep of highDeps) {
-    const peer       = await db.getUser(dep.peerId);
+    const peer = peerMap.get(dep.peerId);
     if (!peer) continue;
-    const peerStatus = await db.getStatusForDate(dep.peerId, today);
+    const peerStatus = peer.statusByDate[today];
     const peerEmoji  = STATUS_EMOJI[peerStatus] || '❓';
     const match      = peerStatus === todayStatus;
     const matchNote  = match
@@ -162,7 +175,7 @@ async function buildHomeView(userId) {
     alertBlocks.push({
       type: 'section',
       fields: [
-        { type: 'mrkdwn', text: `👤 *${peer.displayName}*\n${peerEmoji} ${STATUS_LABEL[peerStatus] || peerStatus || 'Unknown'}` },
+        { type: 'mrkdwn', text: `👤 *${peer.user.displayName}*\n${peerEmoji} ${STATUS_LABEL[peerStatus] || peerStatus || 'Unknown'}` },
         { type: 'mrkdwn', text: `📈 *Score:* ${SCORE_BAR(dep.score)} ${dep.score}/10\n${matchNote}` },
       ],
     });

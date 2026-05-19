@@ -97,11 +97,6 @@ export default function LoginPage({ onLogin }) {
           </button>
         </form>
 
-        <p style={styles.hint}>
-          {role === 'hr'
-            ? 'HR password: hr@hybridsync'
-            : 'Manager password: manager@hybridsync'}
-        </p>
       </div>
     </div>
   );
@@ -157,5 +152,4 @@ const styles = {
     background: '#6366f1', color: '#fff', fontSize: 14, fontWeight: 700,
     cursor: 'pointer', transition: 'background 0.15s', marginTop: 4,
   },
-  hint: { textAlign: 'center', fontSize: 11, color: '#9ca3af', marginTop: 20, marginBottom: 0 },
 };

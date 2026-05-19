@@ -16,6 +16,19 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
+// JWT auth middleware — verifies Authorization: Bearer <token>
+function requireAuth(req, res, next) {
+  const header = req.headers.authorization || '';
+  const token  = header.startsWith('Bearer ') ? header.slice(7) : null;
+  if (!token) return res.status(401).json({ error: 'Missing token' });
+  try {
+    req.auth = jwt.verify(token, JWT_SECRET);
+    next();
+  } catch (e) {
+    return res.status(401).json({ error: 'Invalid or expired token' });
+  }
+}
+
 // Builds a teamId -> teamName lookup from Firestore
 async function teamNameMap(users) {
   const ids   = [...new Set(users.map(u => u.teamId).filter(id => id && typeof id === 'string'))];
@@ -58,7 +71,7 @@ app.get('/api/auth/teams', async (req, res) => {
 });
 
 // GET /api/users — all users with team info
-app.get('/api/users', async (req, res) => {
+app.get('/api/users', requireAuth, async (req, res) => {
   const users = await db.getAllUsers();
   const map   = await teamNameMap(users);
   res.json(users.map(u => ({ ...u, teamName: map[u.teamId] || u.teamId })));
@@ -66,7 +79,7 @@ app.get('/api/users', async (req, res) => {
 
 // GET /api/graph — full company dependency graph as { nodes, edges }
 // Suitable for direct consumption by React Flow
-app.get('/api/graph', async (req, res) => {
+app.get('/api/graph', requireAuth, async (req, res) => {
   const users = await db.getAllUsers();
 
   const map   = await teamNameMap(users);
@@ -99,14 +112,14 @@ app.get('/api/graph', async (req, res) => {
 });
 
 // GET /api/graph/:userId — dependency edges for one user
-app.get('/api/graph/:userId', async (req, res) => {
+app.get('/api/graph/:userId', requireAuth, async (req, res) => {
   const edges = await db.getDependencyGraph(req.params.userId);
   res.json(edges);
 });
 
 // GET /api/schedule/week — all users' statuses for the current week
 // Returns { dates: [...], rows: [{ user, schedule: [{dateKey, day, status}] }] }
-app.get('/api/schedule/week', async (req, res) => {
+app.get('/api/schedule/week', requireAuth, async (req, res) => {
   const users    = await db.getAllUsers();
   const dates    = upcomingWorkDays(5);
   const dateKeys = dates.map(d => d.dateKey);
@@ -123,7 +136,7 @@ app.get('/api/schedule/week', async (req, res) => {
 });
 
 // GET /api/teams — all teams with anchorDays
-app.get('/api/teams', async (req, res) => {
+app.get('/api/teams', requireAuth, async (req, res) => {
   const users   = await db.getAllUsers();
   const teamIds = [...new Set(users.map(u => u.teamId).filter(id => id && typeof id === 'string'))];
   const teams   = await Promise.all(teamIds.map(id => db.getTeam(id)));
@@ -131,7 +144,7 @@ app.get('/api/teams', async (req, res) => {
 });
 
 // POST /api/teams/:teamId/anchor — update anchor days { anchorDays: ['Tue', 'Wed'] }
-app.post('/api/teams/:teamId/anchor', async (req, res) => {
+app.post('/api/teams/:teamId/anchor', requireAuth, async (req, res) => {
   const { anchorDays } = req.body;
   if (!Array.isArray(anchorDays)) return res.status(400).json({ error: 'anchorDays must be an array' });
 
@@ -181,7 +194,7 @@ app.get('/api/oauth/callback', async (req, res) => {
 });
 
 // POST /api/recalculate-deps — rebuild dependency graph from last 30 days of Slack interactions
-app.post('/api/recalculate-deps', async (req, res) => {
+app.post('/api/recalculate-deps', requireAuth, async (req, res) => {
   if (!slackClient) return res.status(503).json({ error: 'Slack client not initialised yet' });
   try {
     const { runWeeklyMapping } = require('./ai/batch');
@@ -193,7 +206,7 @@ app.post('/api/recalculate-deps', async (req, res) => {
 });
 
 // POST /api/sync-teams — pull all channels the bot is in and create/update teams
-app.post('/api/sync-teams', async (req, res) => {
+app.post('/api/sync-teams', requireAuth, async (req, res) => {
   if (!slackClient) return res.status(503).json({ error: 'Slack client not initialised yet' });
   try {
     const results = await syncTeamsFromChannels(slackClient);

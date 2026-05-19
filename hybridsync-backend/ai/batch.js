@@ -1,11 +1,9 @@
 // Scheduled AI batch jobs.
-// Daily Sweep  (7:00 AM)     — Scans last 24h messages for ambiguous scheduling intent.
-// Weekly Map   (Sun 2:00 AM) — Recalculates dependency graph from 30-day Slack interactions.
+// Weekly Map (Sun 2:00 AM) — Recalculates dependency graph from 30-day Slack interactions.
 // Works with Anthropic or Groq via the provider abstraction.
 
 const cron = require('node-cron');
 const db = require('../db');
-const { todayKey } = require('../utils/dates');
 const { runAgentLoop, complete, getProvider } = require('./provider');
 
 // ---------------------------------------------------------------------------
@@ -114,61 +112,6 @@ async function fetchSlackInteractions(slackClient) {
 }
 
 // ---------------------------------------------------------------------------
-// Daily Sweep — 7:00 AM every day
-// ---------------------------------------------------------------------------
-
-const SWEEP_SYSTEM = `You are HybridSync's daily sweep analyzer.
-Scan the messages and identify users signaling WFH, Office, or Sick intent with >= 80% confidence.
-Call update_schedule_db only for clear signals. Skip ambiguous ones.`;
-
-const SWEEP_TOOLS = [
-  {
-    name: 'update_schedule_db',
-    description: 'Persists a user status when their intent is clear.',
-    input_schema: {
-      type: 'object',
-      properties: {
-        userId: { type: 'string' },
-        date:   { type: 'string' },
-        status: { type: 'string', enum: ['WFH', 'Office', 'Sick', 'Leave'] },
-        reason: { type: 'string', description: 'One-line explanation of the detected signal.' },
-      },
-      required: ['userId', 'date', 'status', 'reason'],
-    },
-  },
-];
-
-// Simulated feed — swap getLast24hMessages() with a real conversations.history
-// call (filtered to the last 24h) for production.
-async function getLast24hMessages() {
-  return [
-    { userId: 'U0B3PJ1QP1B', text: 'Not feeling great today, going to WFH.' },
-    { userId: 'U0B3WJ5RQ3W', text: 'Heading to the office, see everyone there!' },
-    { userId: 'U_RIYA',      text: 'Doctor appointment in the morning, will be late today.' },
-  ];
-}
-
-async function runDailySweep() {
-  if (!getProvider()) { console.log('[DailySweep] No API key — skipped.'); return; }
-
-  const today    = todayKey();
-  const messages = await getLast24hMessages();
-  const userMessage = `Today is ${today}. Analyze these messages and update any clear WFH/Office/Sick signals:\n${messages.map(m => `- ${m.userId}: "${m.text}"`).join('\n')}`;
-
-  console.log('[DailySweep] Starting...');
-  await runAgentLoop(SWEEP_SYSTEM, userMessage, SWEEP_TOOLS, async (toolName, input) => {
-    if (toolName === 'update_schedule_db') {
-      console.log(`[DailySweep] ${input.userId} → ${input.status} (${input.reason})`);
-      await db.ensureUser(input.userId);
-      await db.setStatus(input.userId, input.date, input.status);
-      return JSON.stringify({ updated: true });
-    }
-    return JSON.stringify({ error: 'unknown tool' });
-  });
-  console.log('[DailySweep] Complete.');
-}
-
-// ---------------------------------------------------------------------------
 // Weekly Mapping — 2:00 AM every Sunday
 // ---------------------------------------------------------------------------
 
@@ -241,9 +184,8 @@ async function getSimulatedInteractions() {
 // ---------------------------------------------------------------------------
 
 function start(slackClient) {
-  cron.schedule('0 7 * * *', () => runDailySweep().catch(e => console.error('[DailySweep] Error:', e.message)));
   cron.schedule('0 2 * * 0', () => runWeeklyMapping(slackClient).catch(e => console.error('[WeeklyMapping] Error:', e.message)));
-  console.log('[Batch] Scheduled: daily sweep 7 AM, weekly mapping Sun 2 AM.');
+  console.log('[Batch] Scheduled: weekly mapping Sun 2 AM.');
 }
 
-module.exports = { start, runDailySweep, runWeeklyMapping, fetchSlackInteractions };
+module.exports = { start, runWeeklyMapping, fetchSlackInteractions };

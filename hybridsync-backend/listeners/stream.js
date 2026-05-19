@@ -4,7 +4,7 @@ const { publishHome } = require('../views/appHome');
 const orchestrator = require('../ai/orchestrator');
 const { resolveDisplayName } = require('./appHome');
 const { assignUserToChannel } = require('../services/teamSync');
-const { notifyDependents } = require('../services/notifications');
+const { notifyDependents, shouldNotify } = require('../services/notifications');
 const Anthropic = require('@anthropic-ai/sdk');
 
 const STATUS_EMOJI = { WFH: '🏠', Office: '🏢', Sick: '🤒', Leave: '🌴' };
@@ -116,16 +116,18 @@ function register(app) {
       await publishHome(client, message.user);
       console.log(`[Stream] ${displayName} (${message.user}) → ${hit.status} on ${dateKey}`);
 
-      if (isToday) {
-        // Orchestrator handles today — sends negotiation DMs to collaborators.
-        orchestrator.run(message.user, dateKey, hit.status, client).catch(e =>
-          logger.error('[Orchestrator] Background error:', e)
-        );
-      } else {
-        // Future date — no orchestrator, notify dependents directly.
-        notifyDependents(client, message.user, dateKey, hit.status).catch(e =>
-          logger.error('[Stream] notifyDependents error:', e)
-        );
+      if (shouldNotify(message.user, dateKey)) {
+        if (isToday) {
+          // Orchestrator handles today — sends negotiation DMs to collaborators.
+          orchestrator.run(message.user, dateKey, hit.status, client).catch(e =>
+            logger.error('[Orchestrator] Background error:', e)
+          );
+        } else {
+          // Future date — no orchestrator, notify dependents directly.
+          notifyDependents(client, message.user, dateKey, hit.status).catch(e =>
+            logger.error('[Stream] notifyDependents error:', e)
+          );
+        }
       }
     } catch (err) {
       logger.error('Stream listener error:', err);

@@ -2,7 +2,7 @@ const db = require('../db');
 const { upcomingWorkDays, todayKey } = require('../utils/dates');
 const { runAgentLoop } = require('./provider');
 const orchestrator = require('./orchestrator');
-const { notifyDependents } = require('../services/notifications');
+const { notifyDependents, shouldNotify } = require('../services/notifications');
 
 // Per-user conversation history (in-memory, resets on restart).
 // Stores plain text exchanges only — no tool call payloads.
@@ -129,14 +129,16 @@ SLACK FORMATTING RULES (strictly follow these):
           return JSON.stringify({ error: `Cannot update status more than 1 month in advance (${input.date}). Please choose a date on or before ${maxKey}.` });
         }
         await db.setStatus(requestingUserId, input.date, input.status);
-        if (input.date === todayKey()) {
-          orchestrator.run(requestingUserId, input.date, input.status, slackClient).catch(e =>
-            console.error('[Orchestrator] Chatbot trigger error:', e.message)
-          );
-        } else {
-          notifyDependents(slackClient, requestingUserId, input.date, input.status).catch(e =>
-            console.error('[Notify] Chatbot notifyDependents error:', e.message)
-          );
+        if (shouldNotify(requestingUserId, input.date)) {
+          if (input.date === todayKey()) {
+            orchestrator.run(requestingUserId, input.date, input.status, slackClient).catch(e =>
+              console.error('[Orchestrator] Chatbot trigger error:', e.message)
+            );
+          } else {
+            notifyDependents(slackClient, requestingUserId, input.date, input.status).catch(e =>
+              console.error('[Notify] Chatbot notifyDependents error:', e.message)
+            );
+          }
         }
         return JSON.stringify({ updated: true, date: input.date, status: input.status });
       }

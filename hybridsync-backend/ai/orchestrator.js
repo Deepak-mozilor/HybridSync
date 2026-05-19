@@ -4,6 +4,7 @@
 
 const db = require('../db');
 const { runAgentLoop } = require('./provider');
+const { notifyDependents } = require('../services/notifications');
 
 const STATUS_EMOJI = { WFH: '🏠', Office: '🏢', Sick: '🤒', Leave: '🌴' };
 
@@ -118,7 +119,12 @@ async function run(triggeringUserId, date, newStatus, slackClient) {
   try {
     await runAgentLoop(SYSTEM_PROMPT, userMessage, TOOLS, makeExecTool(slackClient));
   } catch (err) {
-    console.error('[Orchestrator] Error:', err.message);
+    console.error('[Orchestrator] AI failed — falling back to direct notifications:', err.message);
+    try {
+      await notifyDependents(slackClient, triggeringUserId, date, newStatus);
+    } catch (fallbackErr) {
+      console.error('[Orchestrator] Fallback notification also failed:', fallbackErr.message);
+    }
   }
 }
 

@@ -129,7 +129,7 @@ ${interactions.map(i => `- ${i.userA} <-> ${i.userB}: ${i.messages} msgs, ${i.re
 
 Output ONLY a JSON array (no prose):
 [{"userId":"...","peerId":"...","score":N}, ...]
-Include both directions (A->B and B->A).`;
+Output one direction per pair only — choose userId as the one who initiates more interactions.`;
 
   console.log('[WeeklyMapping] Starting dependency graph rebuild...');
   const raw = await complete('You are HybridSync\'s dependency graph calculator. Output only valid JSON.', prompt);

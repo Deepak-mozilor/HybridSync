@@ -140,21 +140,41 @@ Include both directions (A->B and B->A).`;
     const parsed = JSON.parse(clean);
     const edges  = Array.isArray(parsed) ? parsed : (parsed.dependencies || parsed.edges || []);
 
-    // Wipe all existing edges first so stale scores don't persist for users
-    // who had zero interactions in this window.
+    // Save manual edges before wiping — they will be restored after.
+    const manualEdges = await db.getAllManualDependencies();
+
+    // Wipe all existing edges so stale scores don't persist.
     const { createClient } = require('@supabase/supabase-js');
     const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_KEY);
     await supabase.from('dependencies').delete().neq('user_id', '');
 
+    // Write AI-calculated scores.
     const byUser = {};
     for (const e of edges) {
       if (!byUser[e.userId]) byUser[e.userId] = [];
-      byUser[e.userId].push({ peerId: e.peerId, score: e.score });
+      byUser[e.userId].push({ peerId: e.peerId, score: e.score, isManual: false });
     }
     for (const [userId, peerEdges] of Object.entries(byUser)) {
       await db._updateDependencies(userId, peerEdges);
     }
-    console.log(`[WeeklyMapping] Rebuilt: ${edges.length} edges across ${Object.keys(byUser).length} users.`);
+
+    // Re-apply manual edges on top — manual always wins.
+    if (manualEdges.length > 0) {
+      const manualByUser = {};
+      for (const e of manualEdges) {
+        if (!manualByUser[e.user_id]) manualByUser[e.user_id] = [];
+        manualByUser[e.user_id].push({ peerId: e.peer_id, score: e.score, isManual: true });
+      }
+      for (const [userId, peerEdges] of Object.entries(manualByUser)) {
+        const existing = await db.getDependencyGraph(userId);
+        const merged = existing.filter(e => !peerEdges.find(m => m.peerId === e.peerId));
+        merged.push(...peerEdges);
+        await db._updateDependencies(userId, merged);
+      }
+      console.log(`[WeeklyMapping] Restored ${manualEdges.length} manual edge(s).`);
+    }
+
+    console.log(`[WeeklyMapping] Rebuilt: ${edges.length} AI edges across ${Object.keys(byUser).length} users.`);
   } catch (err) {
     console.error('[WeeklyMapping] Failed to parse output:', err.message, '\nRaw:', raw?.slice(0, 200));
   }

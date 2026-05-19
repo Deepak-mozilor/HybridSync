@@ -34,3 +34,6 @@ CREATE TABLE IF NOT EXISTS dependencies (
 
 -- Slack OAuth user token (run this if upgrading an existing DB)
 ALTER TABLE users ADD COLUMN IF NOT EXISTS slack_user_token TEXT;
+
+-- Manual dependency flag — preserves hand-set scores across AI recalculations
+ALTER TABLE dependencies ADD COLUMN IF NOT EXISTS is_manual BOOLEAN NOT NULL DEFAULT FALSE;

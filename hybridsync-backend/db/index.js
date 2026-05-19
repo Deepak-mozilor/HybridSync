@@ -267,10 +267,19 @@ async function findUserByName(query) {
 async function getDependencyGraph(userId) {
   const { data, error } = await supabase
     .from('dependencies')
-    .select('peer_id, score')
+    .select('peer_id, score, is_manual')
     .eq('user_id', userId);
   if (error) throw new Error(`getDependencyGraph: ${error.message}`);
-  return (data || []).map(r => ({ peerId: r.peer_id, score: r.score }));
+  return (data || []).map(r => ({ peerId: r.peer_id, score: r.score, isManual: r.is_manual }));
+}
+
+async function getAllManualDependencies() {
+  const { data, error } = await supabase
+    .from('dependencies')
+    .select('user_id, peer_id, score')
+    .eq('is_manual', true);
+  if (error) throw new Error(`getAllManualDependencies: ${error.message}`);
+  return data || [];
 }
 
 async function _updateDependencies(userId, edges) {
@@ -278,7 +287,7 @@ async function _updateDependencies(userId, edges) {
   await supabase.from('dependencies').delete().eq('user_id', userId);
   if (edges.length === 0) return;
   const { error } = await supabase.from('dependencies').insert(
-    edges.map(e => ({ user_id: userId, peer_id: e.peerId, score: e.score }))
+    edges.map(e => ({ user_id: userId, peer_id: e.peerId, score: e.score, is_manual: e.isManual || false }))
   );
   if (error) throw new Error(`_updateDependencies: ${error.message}`);
 }
@@ -302,5 +311,6 @@ module.exports = {
   getTeammates,
   findUserByName,
   getDependencyGraph,
+  getAllManualDependencies,
   _updateDependencies,
 };

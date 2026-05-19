@@ -80,9 +80,9 @@ function register(app) {
       if (addUserId && addUserId !== userId) {
         const idx = edges.findIndex(e => e.peerId === addUserId);
         if (idx >= 0) {
-          edges[idx] = { peerId: addUserId, score: addScore };
+          edges[idx] = { peerId: addUserId, score: addScore, isManual: true };
         } else {
-          edges.push({ peerId: addUserId, score: addScore });
+          edges.push({ peerId: addUserId, score: addScore, isManual: true });
         }
         changed = true;
       }

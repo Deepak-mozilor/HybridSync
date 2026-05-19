@@ -32,7 +32,10 @@ async function notifyDependents(slackClient, triggeringUserId, dateKey, newStatu
   const emoji = STATUS_EMOJI[newStatus] || '📅';
 
   for (const { peerId, score } of highDeps) {
-    if (!/^U[A-Z0-9]{6,}$/.test(peerId)) continue;
+    // Slack user IDs: U/W prefix + 8-10 alphanumeric uppercase chars.
+    // Bad IDs are also rejected by the Slack API, but checking up-front
+    // avoids wasted API calls and noisy error logs.
+    if (!/^[UW][A-Z0-9]{8,10}$/.test(peerId)) continue;
     if (peerId === triggeringUserId) continue;
 
     const peerStatus = await db.getStatusForDate(peerId, dateKey);

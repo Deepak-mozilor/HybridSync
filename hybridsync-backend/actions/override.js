@@ -23,6 +23,10 @@ function register(app) {
       ]);
     } catch (err) {
       logger.error('Could not open override modal (trigger_id expired?):', err.message);
+      client.chat.postMessage({
+        channel: body.user.id,
+        text: "⚠️ Couldn't open the schedule editor — please try clicking *Edit Schedule* again.",
+      }).catch(() => {});
       return;
     }
 
@@ -33,6 +37,22 @@ function register(app) {
       await client.views.update({ view_id: opened.view.id, view });
     } catch (err) {
       logger.error('Error loading schedule into override modal:', err);
+      try {
+        await client.views.update({
+          view_id: opened.view.id,
+          view: {
+            type: 'modal',
+            title: { type: 'plain_text', text: 'Edit Schedule', emoji: true },
+            close: { type: 'plain_text', text: 'Close', emoji: true },
+            blocks: [{
+              type: 'section',
+              text: { type: 'mrkdwn', text: '⚠️ *Could not load your schedule.*\nPlease close this dialog and try again in a moment.' },
+            }],
+          },
+        });
+      } catch (updateErr) {
+        logger.error('Could not show error modal:', updateErr.message);
+      }
     }
   });
 

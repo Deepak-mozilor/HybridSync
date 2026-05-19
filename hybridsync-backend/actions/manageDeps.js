@@ -22,6 +22,10 @@ function register(app) {
       ]);
     } catch (err) {
       logger.error('Could not open manage deps modal:', err.message);
+      client.chat.postMessage({
+        channel: body.user.id,
+        text: "⚠️ Couldn't open the dependencies editor — please try clicking *Manage Dependencies* again.",
+      }).catch(() => {});
       return;
     }
 
@@ -30,24 +34,50 @@ function register(app) {
       await client.views.update({ view_id: opened.view.id, view });
     } catch (err) {
       logger.error('Error loading dependencies into modal:', err);
+      try {
+        await client.views.update({
+          view_id: opened.view.id,
+          view: {
+            type: 'modal',
+            title: { type: 'plain_text', text: 'My Dependencies', emoji: true },
+            close: { type: 'plain_text', text: 'Close', emoji: true },
+            blocks: [{
+              type: 'section',
+              text: { type: 'mrkdwn', text: '⚠️ *Could not load your collaborators.*\nPlease close this dialog and try again in a moment.' },
+            }],
+          },
+        });
+      } catch (updateErr) {
+        logger.error('Could not show error modal:', updateErr.message);
+      }
     }
   });
 
   app.view('manage_deps_submit', async ({ ack, body, view, client, logger }) => {
+    const userId = body.user.id;
+    const vals   = view.state.values;
+
+    const addUserId  = vals.add_user?.user_select?.selected_user;
+    const addScore   = parseInt(vals.add_score?.score_select?.selected_option?.value, 10);
+    const removeUserId = vals.remove_user?.remove_select?.selected_user;
+
+    // Validate score before accepting the submission
+    if (addUserId && (isNaN(addScore) || addScore < 1 || addScore > 10)) {
+      await ack({
+        response_action: 'errors',
+        errors: { add_score: 'Score must be a number between 1 and 10.' },
+      });
+      return;
+    }
+
     await ack();
+
     try {
-      const userId = body.user.id;
-      const vals   = view.state.values;
-
-      const addUserId  = vals.add_user?.user_select?.selected_user;
-      const addScore   = parseInt(vals.add_score?.score_select?.selected_option?.value, 10);
-      const removeUserId = vals.remove_user?.remove_select?.selected_user;
-
       const edges = await db.getDependencyGraph(userId);
 
       let changed = false;
 
-      if (addUserId && addUserId !== userId && !isNaN(addScore)) {
+      if (addUserId && addUserId !== userId) {
         const idx = edges.findIndex(e => e.peerId === addUserId);
         if (idx >= 0) {
           edges[idx] = { peerId: addUserId, score: addScore };

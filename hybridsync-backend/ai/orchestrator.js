@@ -60,7 +60,8 @@ function makeExecTool(slackClient) {
 
       case 'send_negotiation_dm': {
         const { triggeringUserId, peerId, date, newStatus, score } = input;
-        if (!/^U[A-Z0-9]{6,}$/.test(peerId)) return JSON.stringify({ error: 'Invalid peerId' });
+        // Slack user IDs: U/W prefix + 8-10 alphanumeric uppercase chars.
+        if (!/^[UW][A-Z0-9]{8,10}$/.test(peerId)) return JSON.stringify({ error: 'Invalid peerId' });
 
         const peerStatus = await db.getStatusForDate(peerId, date);
         if (peerStatus === newStatus) return JSON.stringify({ skipped: 'already same status' });

@@ -85,6 +85,8 @@ export default function GraphView({ graphData, filterTeam }) {
         nodeTypes={NODE_TYPES}
         edgeTypes={EDGE_TYPES}
         fitView
+        zoomOnScroll={false}
+        preventScrolling={false}
         attributionPosition="bottom-right"
       >
         <Background gap={20} color="#f3f4f6" />

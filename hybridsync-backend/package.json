@@ -7,8 +7,7 @@
     "start": "node app.js",
     "dev": "node --watch app.js",
     "test": "echo \"Error: no test specified\" && exit 1",
-    "seed:conversations": "node scripts/seedConversations.js",
-    "run:weekly-mapping": "node -e \"require('dotenv').config(); require('./ai/batch').runWeeklyMapping()\""
+"run:weekly-mapping": "node -e \"require('dotenv').config(); require('./ai/batch').runWeeklyMapping()\""
   },
   "keywords": [],
   "author": "",

@@ -16,9 +16,6 @@ const { runAgentLoop, complete, getProvider } = require('./provider');
 //   replies   — user replies in a thread started by someone else
 //   reactions — user reacts to someone else's message
 //
-// Seed messages posted by scripts/seedConversations.js carry metadata
-// { event_type: 'sim_sender', event_payload: { user_id } } so their "real"
-// sender is recovered even though the Slack user field is the bot's ID.
 // ---------------------------------------------------------------------------
 
 async function fetchSlackInteractions(slackClient) {
@@ -44,10 +41,7 @@ async function fetchSlackInteractions(slackClient) {
   }
 
   // Extract real sender: prefer metadata (seeded messages), fall back to message.user.
-  // Skip plain bot messages that carry no metadata (system posts, etc.).
   function realSender(msg) {
-    const sim = msg.metadata?.event_payload?.user_id;
-    if (sim) return sim;
     return msg.user !== botId ? msg.user : null;
   }
 
@@ -60,7 +54,6 @@ async function fetchSlackInteractions(slackClient) {
         channel: ch.id,
         oldest,
         limit: 200,
-        include_all_metadata: true,
         ...(cursor ? { cursor } : {}),
       });
 
@@ -85,7 +78,6 @@ async function fetchSlackInteractions(slackClient) {
           const threadRes = await slackClient.conversations.replies({
             channel: ch.id,
             ts: msg.ts,
-            include_all_metadata: true,
           });
           for (const reply of (threadRes.messages || []).slice(1)) { // slice off parent
             const replier = realSender(reply);

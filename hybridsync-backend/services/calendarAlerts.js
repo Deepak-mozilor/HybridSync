@@ -9,7 +9,10 @@ async function checkWFHConflict(slackClient, userId, date, newStatus) {
   if (!load || load.offlineCount === 0) return;
 
   const offlineMeetings = load.slots.filter(s => s.type === 'offline');
-  const list = offlineMeetings.map(s => `• *${s.title}* (${s.start} – ${s.end})`).join('\n');
+  const list = offlineMeetings.map(s => {
+    const with_ = s.attendees?.length ? `  _with ${s.attendees.join(', ')}_` : '';
+    return `• *${s.title}* (${s.start} – ${s.end})${with_}`;
+  }).join('\n');
 
   await slackClient.chat.postMessage({
     channel: userId,

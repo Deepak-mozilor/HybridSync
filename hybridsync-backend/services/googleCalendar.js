@@ -47,7 +47,7 @@ async function getMeetingsForDate(userId, dateKey) {
     timeMax,
     singleEvents: true,
     orderBy: 'startTime',
-    fields: 'items(summary,start,end,status,location,conferenceData)',
+    fields: 'items(summary,start,end,status,location,conferenceData,attendees)',
   });
 
   const events = (res.data.items || []).filter(
@@ -75,6 +75,14 @@ async function getMeetingsForDate(userId, dateKey) {
   const offlineCount = classified.filter(e => e.type === 'offline').length;
   const unknownCount = classified.filter(e => e.type === 'unknown').length;
 
+  // Cross-reference attendee emails with HybridSync users
+  const allUsers = await db.getAllUsers();
+  const emailToName = {};
+  for (const u of allUsers) {
+    const email = await db.getGoogleEmail(u.id).catch(() => null);
+    if (email) emailToName[email.toLowerCase()] = u.displayName;
+  }
+
   return {
     count:        events.length,
     totalMinutes: Math.round(totalMinutes),
@@ -83,12 +91,24 @@ async function getMeetingsForDate(userId, dateKey) {
     onlineCount,
     offlineCount,
     unknownCount,
-    slots: classified.map(e => ({
-      title: e.summary || 'Meeting',
-      type:  e.type,
-      start: new Date(e.start.dateTime).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true }),
-      end:   new Date(e.end.dateTime).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true }),
-    })),
+    slots: classified.map(e => {
+      const attendeeEmails = (e.attendees || [])
+        .filter(a => !a.self)
+        .map(a => a.email?.toLowerCase())
+        .filter(Boolean);
+
+      const knownAttendees = attendeeEmails
+        .map(email => emailToName[email])
+        .filter(Boolean);
+
+      return {
+        title:     e.summary || 'Meeting',
+        type:      e.type,
+        start:     new Date(e.start.dateTime).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true }),
+        end:       new Date(e.end.dateTime).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true }),
+        attendees: knownAttendees,
+      };
+    }),
   };
 }
 

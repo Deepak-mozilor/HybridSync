@@ -140,7 +140,7 @@ async function buildHomeView(userId) {
       { type: 'mrkdwn', text: `${todayEmoji} *Status*\n${STATUS_LABEL[todayStatus] || todayStatus}${isAnchorToday ? '  •  📌 Anchor' : ''}` },
       { type: 'mrkdwn', text: `🏷️ *Team*\n${team?.name || 'Unassigned'}${roleLabel}` },
       { type: 'mrkdwn', text: `📊 *This Week*\n${officeDays}d Office  ·  ${wfhDays}d WFH` },
-      ...(meetingLoad ? [{ type: 'mrkdwn', text: `${meetingLoad.emoji} *Meetings Today*\n${meetingLoad.count} meeting${meetingLoad.count !== 1 ? 's' : ''}  ·  ${meetingLoad.totalMinutes}min  ·  ${meetingLoad.label}` }] : []),
+      ...(meetingLoad ? [{ type: 'mrkdwn', text: `${meetingLoad.emoji} *Meetings Today*\n${meetingLoad.count} meeting${meetingLoad.count !== 1 ? 's' : ''}  ·  ${meetingLoad.totalMinutes}min  ·  ${meetingLoad.label}  ·  ${meetingLoad.onlineCount} online  ·  ${meetingLoad.offlineCount} offline` }] : []),
     ],
   };
 

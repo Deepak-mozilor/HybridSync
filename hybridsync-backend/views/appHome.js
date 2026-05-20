@@ -26,7 +26,7 @@ function ctx(...texts) {
   return { type: 'context', elements: texts.map(t => ({ type: 'mrkdwn', text: t })) };
 }
 
-function bestCollabDay(week, schedule, highDeps, peerMap) {
+function bestCollabDay(week, schedule, highDeps, peerMap, userMeetingByDate = {}) {
   if (!highDeps.length) return null;
 
   const dayScores = [];
@@ -46,7 +46,12 @@ function bestCollabDay(week, schedule, highDeps, peerMap) {
       }
     }
 
-    dayScores.push({ day, dateKey, userStatus, weightedScore, colocated, matchCount: colocated.length });
+    // Penalise days with heavy meeting load — harder to collaborate effectively
+    const load = userMeetingByDate[dateKey];
+    if (load?.label === 'Heavy')    weightedScore -= 5;
+    else if (load?.label === 'Moderate') weightedScore -= 2;
+
+    dayScores.push({ day, dateKey, userStatus, weightedScore, colocated, matchCount: colocated.length, meetingLoad: load });
   }
 
   if (!dayScores.length) return null;
@@ -107,15 +112,25 @@ async function buildHomeView(userId) {
   // --- Google Calendar ---
   const googleTokens    = await db.getGoogleTokens(userId);
   const googleConnected = !!googleTokens;
-  const meetingLoad     = googleConnected
-    ? await getMeetingsForDate(userId, today).catch(() => null)
-    : null;
   const googleAuthUrl = process.env.GOOGLE_CLIENT_ID
     ? `${process.env.SLACK_OAUTH_REDIRECT_URI?.replace('/api/oauth/callback', '') || 'http://localhost:3001'}/api/google/auth?state=${userId}`
     : null;
 
-  // --- Best collaboration day (in-memory, no DB calls) ---
-  const best = bestCollabDay(week, schedule, highDeps, peerMap);
+  // Fetch meeting load for all week days in parallel (today + rest of week)
+  const userMeetingByDate = {};
+  if (googleConnected) {
+    const loads = await Promise.all(
+      weekDateKeys.map(async dateKey => {
+        const load = await getMeetingsForDate(userId, dateKey).catch(() => null);
+        return [dateKey, load];
+      })
+    );
+    loads.forEach(([dateKey, load]) => { if (load) userMeetingByDate[dateKey] = load; });
+  }
+  const meetingLoad = userMeetingByDate[today] || null;
+
+  // --- Best collaboration day — factors in meeting load ---
+  const best = bestCollabDay(week, schedule, highDeps, peerMap, userMeetingByDate);
 
   // --- Today block ---
   const todayBlock = {
@@ -153,11 +168,17 @@ async function buildHomeView(userId) {
     },
   };
 
+  // --- WFH suggestion ---
+  const suggestWFH = meetingLoad?.label === 'Heavy' && todayStatus === 'Office';
+
   // --- Best collab day block ---
   let bestDayBlocks = [];
   if (best && best.matchCount > 0) {
     const statusEmoji = STATUS_EMOJI[best.userStatus] || '📅';
     const names = best.colocated.join(', ');
+    const meetingNote = best.meetingLoad
+      ? `  ·  ${best.meetingLoad.emoji} ${best.meetingLoad.label} meeting day`
+      : '';
     bestDayBlocks = [
       {
         type: 'section',
@@ -166,7 +187,7 @@ async function buildHomeView(userId) {
           { type: 'mrkdwn', text: `${statusEmoji} *Everyone's Status*\n${best.userStatus}` },
         ],
       },
-      ctx(`👥 Co-located with: *${names}*  ·  combined score *${best.weightedScore}*`),
+      ctx(`👥 Co-located with: *${names}*  ·  combined score *${best.weightedScore}*${meetingNote}`),
     ];
   } else {
     bestDayBlocks = [md('_No overlap found this week — schedules are out of sync._')];
@@ -204,6 +225,15 @@ async function buildHomeView(userId) {
 
     md('*📍 Today at a Glance*'),
     todayBlock,
+    ...(suggestWFH ? [
+      {
+        type: 'section',
+        text: {
+          type: 'mrkdwn',
+          text: `💡 *Suggestion:* You have *${meetingLoad.count} meetings* today (${meetingLoad.totalMinutes} min total). Back-to-back meetings are often easier from home — consider switching to *WFH 🏠*.`,
+        },
+      },
+    ] : []),
     divider(),
 
     md('*⭐ Best Collaboration Day This Week*'),

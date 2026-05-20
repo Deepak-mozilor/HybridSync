@@ -7,6 +7,7 @@ const jwt          = require('jsonwebtoken');
 const db           = require('./db');
 const { upcomingWorkDays } = require('./utils/dates');
 const { syncTeamsFromChannels } = require('./services/teamSync');
+const googleCalendar = require('./services/googleCalendar');
 
 const JWT_SECRET = process.env.JWT_SECRET || 'hybridsync-secret';
 
@@ -190,6 +191,41 @@ app.get('/api/oauth/callback', async (req, res) => {
   } catch (e) {
     console.error('[OAuth] Callback error:', e.message);
     res.status(500).send(`<h2 style="font-family:system-ui;text-align:center;padding-top:60px">Connection failed: ${e.message}</h2>`);
+  }
+});
+
+// GET /api/google/auth — start Google Calendar OAuth (opened in browser from App Home button)
+app.get('/api/google/auth', async (req, res) => {
+  const { state: userId } = req.query;
+  if (!userId) return res.status(400).send('Missing user ID');
+  if (!process.env.GOOGLE_CLIENT_ID) return res.status(503).send('Google Calendar not configured');
+  try {
+    const url = googleCalendar.generateAuthUrl(userId);
+    res.redirect(url);
+  } catch (e) {
+    res.status(500).send(`Failed to start OAuth: ${e.message}`);
+  }
+});
+
+// GET /api/google/callback — Google redirects here after user grants calendar access
+app.get('/api/google/callback', async (req, res) => {
+  const { code, state: userId, error } = req.query;
+  if (error || !code || !userId) {
+    return res.send('<html><body style="font-family:system-ui;text-align:center;padding-top:60px"><div style="font-size:48px">❌</div><h2>Authorization cancelled.</h2><p style="color:#6b7280">You can close this tab.</p></body></html>');
+  }
+  try {
+    const tokens = await googleCalendar.exchangeCode(code);
+    await db.saveGoogleTokens(userId, tokens);
+    console.log(`[Google] Saved calendar tokens for ${userId}`);
+    res.send(`<html><body style="font-family:system-ui;text-align:center;padding-top:60px;color:#1e293b">
+      <div style="font-size:48px;margin-bottom:16px">✅</div>
+      <h2 style="margin:0 0 8px">Google Calendar Connected!</h2>
+      <p style="color:#6b7280">Your meeting schedule will now be considered when coordinating with collaborators.</p>
+      <p style="color:#9ca3af;font-size:13px">You can close this tab and return to Slack.</p>
+    </body></html>`);
+  } catch (e) {
+    console.error('[Google] OAuth callback error:', e.message);
+    res.status(500).send(`<html><body style="font-family:system-ui;text-align:center;padding-top:60px"><h2>Connection failed: ${e.message}</h2></body></html>`);
   }
 });
 

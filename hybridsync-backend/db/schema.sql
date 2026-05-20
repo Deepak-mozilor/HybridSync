@@ -37,3 +37,6 @@ ALTER TABLE users ADD COLUMN IF NOT EXISTS slack_user_token TEXT;
 
 -- Manual dependency flag — preserves hand-set scores across AI recalculations
 ALTER TABLE dependencies ADD COLUMN IF NOT EXISTS is_manual BOOLEAN NOT NULL DEFAULT FALSE;
+
+-- Google Calendar OAuth tokens
+ALTER TABLE users ADD COLUMN IF NOT EXISTS google_tokens JSONB;

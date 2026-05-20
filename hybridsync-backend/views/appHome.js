@@ -1,5 +1,6 @@
 const db = require('../db');
 const { upcomingWorkDays, todayKey } = require('../utils/dates');
+const { getMeetingsForDate } = require('../services/googleCalendar');
 
 const STATUS_EMOJI = { WFH: '🏠', Office: '🏢', Sick: '🤒', Leave: '🌴' };
 const STATUS_LABEL = { WFH: 'Work From Home', Office: 'In Office', Sick: 'Out Sick', Leave: 'On Leave' };
@@ -103,6 +104,16 @@ async function buildHomeView(userId) {
   const isConnected   = !!userToken;
   const oauthUrl      = buildConnectOAuthUrl(userId);
 
+  // --- Google Calendar ---
+  const googleTokens    = await db.getGoogleTokens(userId);
+  const googleConnected = !!googleTokens;
+  const meetingLoad     = googleConnected
+    ? await getMeetingsForDate(userId, today).catch(() => null)
+    : null;
+  const googleAuthUrl = process.env.GOOGLE_CLIENT_ID
+    ? `${process.env.SLACK_OAUTH_REDIRECT_URI?.replace('/api/oauth/callback', '') || 'http://localhost:3001'}/api/google/auth?state=${userId}`
+    : null;
+
   // --- Best collaboration day (in-memory, no DB calls) ---
   const best = bestCollabDay(week, schedule, highDeps, peerMap);
 
@@ -114,6 +125,7 @@ async function buildHomeView(userId) {
       { type: 'mrkdwn', text: `${todayEmoji} *Status*\n${STATUS_LABEL[todayStatus] || todayStatus}${isAnchorToday ? '  •  📌 Anchor' : ''}` },
       { type: 'mrkdwn', text: `🏷️ *Team*\n${team?.name || 'Unassigned'}${roleLabel}` },
       { type: 'mrkdwn', text: `📊 *This Week*\n${officeDays}d Office  ·  ${wfhDays}d WFH` },
+      ...(meetingLoad ? [{ type: 'mrkdwn', text: `${meetingLoad.emoji} *Meetings Today*\n${meetingLoad.count} meeting${meetingLoad.count !== 1 ? 's' : ''}  ·  ${meetingLoad.totalMinutes}min  ·  ${meetingLoad.label}` }] : []),
     ],
   };
 
@@ -217,6 +229,29 @@ async function buildHomeView(userId) {
     divider(),
 
     ctx('💬 Say `wfh`, `in office`, or `sick` in any channel to update your status instantly.'),
+    divider(),
+
+    md('*📅 Google Calendar*'),
+    googleConnected
+      ? ctx('✅ *Connected* — your meeting load is visible to HybridSync and used when coordinating schedules.')
+      : {
+          type: 'section',
+          text: {
+            type: 'mrkdwn',
+            text: googleAuthUrl
+              ? '📆 *Not connected* — link Google Calendar so HybridSync can factor your meeting load into schedule coordination.'
+              : '_Google Calendar is not configured. Ask your admin to set `GOOGLE_CLIENT_ID`._',
+          },
+          ...(googleAuthUrl ? {
+            accessory: {
+              type:      'button',
+              text:      { type: 'plain_text', text: '📅 Connect Google Calendar', emoji: true },
+              style:     'primary',
+              url:       googleAuthUrl,
+              action_id: 'connect_google_calendar',
+            },
+          } : {}),
+        },
     divider(),
 
     md('*🔗 Slack Status Sync*'),

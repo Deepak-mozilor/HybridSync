@@ -5,6 +5,7 @@
 const db = require('../db');
 const { runAgentLoop } = require('./provider');
 const { notifyDependents } = require('../services/notifications');
+const { getMeetingsForDate } = require('../services/googleCalendar');
 
 const STATUS_EMOJI = { WFH: '🏠', Office: '🏢', Sick: '🤒', Leave: '🌴' };
 
@@ -12,8 +13,9 @@ const SYSTEM_PROMPT = `You are HybridSync's scheduling orchestrator. Your sole g
 
 When a team member changes their work location, you must:
 1. Use get_dependency_graph to identify their high-priority collaborators (score >= 7).
-2. For each high-priority collaborator whose current status differs, use send_negotiation_dm to let them decide whether to adjust.
-3. Only send a DM when collaboration loss is genuinely at risk — not speculatively.
+2. Optionally use get_meeting_load to check if a collaborator has a heavy meeting day — include this context in the DM if available.
+3. For each high-priority collaborator whose current status differs, use send_negotiation_dm to let them decide whether to adjust.
+4. Only send a DM when collaboration loss is genuinely at risk — not speculatively.
 
 Constraints:
 - Only act on collaborators with dependency score >= 7.
@@ -32,6 +34,18 @@ const TOOLS = [
     },
   },
   {
+    name: 'get_meeting_load',
+    description: 'Gets meeting load for a user on a specific date from Google Calendar. Returns null if user has not connected Google Calendar.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        userId: { type: 'string' },
+        date:   { type: 'string', description: 'YYYY-MM-DD' },
+      },
+      required: ['userId', 'date'],
+    },
+  },
+  {
     name: 'send_negotiation_dm',
     description: 'Sends a Slack DM to a collaborator letting them choose whether to adjust their schedule. Never silently changes their schedule.',
     input_schema: {
@@ -42,6 +56,7 @@ const TOOLS = [
         date:             { type: 'string', description: 'YYYY-MM-DD' },
         newStatus:        { type: 'string', enum: ['WFH', 'Office', 'Sick', 'Leave'] },
         score:            { type: 'number', description: 'Collaboration score 1-10.' },
+        meetingContext:   { type: 'string', description: 'Optional meeting load context, e.g. "You have 4 meetings today (Heavy)".' },
       },
       required: ['triggeringUserId', 'peerId', 'date', 'newStatus', 'score'],
     },
@@ -58,8 +73,13 @@ function makeExecTool(slackClient) {
         return JSON.stringify(edges);
       }
 
+      case 'get_meeting_load': {
+        const load = await getMeetingsForDate(input.userId, input.date).catch(() => null);
+        return JSON.stringify(load || { connected: false });
+      }
+
       case 'send_negotiation_dm': {
-        const { triggeringUserId, peerId, date, newStatus, score } = input;
+        const { triggeringUserId, peerId, date, newStatus, score, meetingContext } = input;
         // Slack user IDs: U/W prefix + 8-10 alphanumeric uppercase chars.
         if (!/^[UW][A-Z0-9]{8,10}$/.test(peerId)) return JSON.stringify({ error: 'Invalid peerId' });
 
@@ -81,7 +101,7 @@ function makeExecTool(slackClient) {
               type: 'section',
               text: {
                 type: 'mrkdwn',
-                text: `<@${triggeringUserId}> just switched to *${newStatus} ${emoji}* on *${date}*.\nYour collaboration score: *${score}/10*\n\nWould you like to adjust your schedule?`,
+                text: `<@${triggeringUserId}> just switched to *${newStatus} ${emoji}* on *${date}*.\nYour collaboration score: *${score}/10*${meetingContext ? `\n📅 ${meetingContext}` : ''}\n\nWould you like to adjust your schedule?`,
               },
             },
             {

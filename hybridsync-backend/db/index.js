@@ -205,6 +205,23 @@ async function getUserToken(userId) {
   return data?.slack_user_token || null;
 }
 
+async function saveGoogleTokens(userId, tokens) {
+  const { error } = await supabase
+    .from('users')
+    .update({ google_tokens: tokens })
+    .eq('id', userId);
+  if (error) throw new Error(`saveGoogleTokens: ${error.message}`);
+}
+
+async function getGoogleTokens(userId) {
+  const { data } = await supabase
+    .from('users')
+    .select('google_tokens')
+    .eq('id', userId)
+    .maybeSingle();
+  return data?.google_tokens || null;
+}
+
 // ---------------------------------------------------------------------------
 // Teams
 // ---------------------------------------------------------------------------
@@ -305,6 +322,8 @@ module.exports = {
   onStatusChange,
   saveUserToken,
   getUserToken,
+  saveGoogleTokens,
+  getGoogleTokens,
   getTeam,
   upsertTeam,
   updateUserTeam,

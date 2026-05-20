@@ -47,12 +47,19 @@ async function getMeetingsForDate(userId, dateKey) {
     timeMax,
     singleEvents: true,
     orderBy: 'startTime',
-    fields: 'items(summary,start,end,status)',
+    fields: 'items(summary,start,end,status,location,conferenceData)',
   });
 
   const events = (res.data.items || []).filter(
     e => e.status !== 'cancelled' && e.start?.dateTime
   );
+
+  // Classify each meeting as online, offline, or unknown
+  function classifyEvent(e) {
+    if (e.conferenceData?.entryPoints?.length) return 'online';
+    if (e.location && e.location.trim().length > 0) return 'offline';
+    return 'unknown';
+  }
 
   const totalMinutes = events.reduce((sum, e) => {
     return sum + (new Date(e.end.dateTime) - new Date(e.start.dateTime)) / 60000;
@@ -61,17 +68,70 @@ async function getMeetingsForDate(userId, dateKey) {
   const label = totalMinutes >= 240 ? 'Heavy' : totalMinutes >= 120 ? 'Moderate' : 'Light';
   const emoji = totalMinutes >= 240 ? '🔴' : totalMinutes >= 120 ? '🟡' : '🟢';
 
+  const classified = events.map(e => ({ ...e, type: classifyEvent(e) }));
+  const onlineCount  = classified.filter(e => e.type === 'online').length;
+  const offlineCount = classified.filter(e => e.type === 'offline').length;
+  const unknownCount = classified.filter(e => e.type === 'unknown').length;
+
   return {
     count:        events.length,
     totalMinutes: Math.round(totalMinutes),
     label,
     emoji,
-    slots: events.map(e => ({
+    onlineCount,
+    offlineCount,
+    unknownCount,
+    slots: classified.map(e => ({
       title: e.summary || 'Meeting',
+      type:  e.type,
       start: new Date(e.start.dateTime).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true }),
       end:   new Date(e.end.dateTime).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true }),
     })),
   };
+}
+
+function getWebhookUrl() {
+  const base = process.env.SLACK_OAUTH_REDIRECT_URI?.replace('/api/oauth/callback', '')
+    || 'http://localhost:3001';
+  return `${base}/api/google/webhook`;
+}
+
+async function watchCalendar(userId, tokens) {
+  const client = createOAuthClient();
+  client.setCredentials(tokens);
+  const calendar  = google.calendar({ version: 'v3', auth: client });
+  const channelId = `hybridsync-${userId}-${Date.now()}`;
+
+  const res = await calendar.events.watch({
+    calendarId: 'primary',
+    requestBody: {
+      id:      channelId,
+      type:    'web_hook',
+      address: getWebhookUrl(),
+      // 7 days max, in seconds
+      expiration: String(Date.now() + 7 * 24 * 60 * 60 * 1000),
+    },
+  });
+
+  const expiry = Number(res.data.expiration);
+  await db.saveGoogleChannel(userId, channelId, expiry);
+  console.log(`[Google] Watching calendar for ${userId} — channel ${channelId}`);
+  return channelId;
+}
+
+// Renew channels that expire within the next 24 hours
+async function renewChannels() {
+  const users = await db.getAllGoogleConnectedUsers();
+  const cutoff = Date.now() + 24 * 60 * 60 * 1000;
+  for (const user of users) {
+    const expiry = user.googleChannelExpiry;
+    if (!expiry || expiry > cutoff) continue;
+    const tokens = await db.getGoogleTokens(user.id).catch(() => null);
+    if (!tokens) continue;
+    await watchCalendar(user.id, tokens).catch(e =>
+      console.error(`[Google] Failed to renew channel for ${user.id}:`, e.message)
+    );
+  }
 }
 
 async function getUserEmail(tokens) {
@@ -115,4 +175,4 @@ async function getSharedMeetingCount(userIdA, userIdB, days = 30) {
   ).length;
 }
 
-module.exports = { generateAuthUrl, exchangeCode, getMeetingsForDate, getUserEmail, getSharedMeetingCount };
+module.exports = { generateAuthUrl, exchangeCode, getMeetingsForDate, getUserEmail, getSharedMeetingCount, watchCalendar, renewChannels };

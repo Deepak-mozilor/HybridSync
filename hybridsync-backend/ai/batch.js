@@ -5,7 +5,7 @@
 const cron = require('node-cron');
 const db = require('../db');
 const { runAgentLoop, complete, getProvider } = require('./provider');
-const { getSharedMeetingCount } = require('../services/googleCalendar');
+const { getSharedMeetingCount, renewChannels } = require('../services/googleCalendar');
 
 // ---------------------------------------------------------------------------
 // Slack interaction fetcher — replaces the hardcoded simulation.
@@ -201,7 +201,9 @@ async function getSimulatedInteractions() {
 
 function start(slackClient) {
   cron.schedule('0 2 * * 0', () => runWeeklyMapping(slackClient).catch(e => console.error('[WeeklyMapping] Error:', e.message)));
-  console.log('[Batch] Scheduled: weekly mapping Sun 2 AM.');
+  // Renew Google Calendar webhook channels daily before they expire (max 7 days)
+  cron.schedule('0 3 * * *', () => renewChannels().catch(e => console.error('[Google] Channel renewal error:', e.message)));
+  console.log('[Batch] Scheduled: weekly mapping Sun 2 AM, Google channel renewal daily 3 AM.');
 }
 
 module.exports = { start, runWeeklyMapping, fetchSlackInteractions };

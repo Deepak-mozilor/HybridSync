@@ -22,11 +22,12 @@ const supabase = createClient(
 
 function toUser(row) {
   return {
-    id:          row.id,
-    displayName: row.display_name,
-    teamId:      row.team_id   || null,
-    role:        row.role,
-    week:        row.week      || {},
+    id:                   row.id,
+    displayName:          row.display_name,
+    teamId:               row.team_id            || null,
+    role:                 row.role,
+    week:                 row.week               || {},
+    googleChannelExpiry:  row.google_channel_expiry || null,
   };
 }
 
@@ -239,6 +240,32 @@ async function getGoogleEmail(userId) {
   return data?.google_email || null;
 }
 
+async function saveGoogleChannel(userId, channelId, expiry) {
+  const { error } = await supabase
+    .from('users')
+    .update({ google_channel_id: channelId, google_channel_expiry: expiry })
+    .eq('id', userId);
+  if (error) throw new Error(`saveGoogleChannel: ${error.message}`);
+}
+
+async function getUserByChannelId(channelId) {
+  const { data } = await supabase
+    .from('users')
+    .select('*')
+    .eq('google_channel_id', channelId)
+    .maybeSingle();
+  return data ? toUser(data) : null;
+}
+
+async function getAllGoogleConnectedUsers() {
+  const { data, error } = await supabase
+    .from('users')
+    .select('*')
+    .not('google_tokens', 'is', null);
+  if (error) throw new Error(`getAllGoogleConnectedUsers: ${error.message}`);
+  return (data || []).map(toUser);
+}
+
 // ---------------------------------------------------------------------------
 // Teams
 // ---------------------------------------------------------------------------
@@ -343,6 +370,9 @@ module.exports = {
   getGoogleTokens,
   saveGoogleEmail,
   getGoogleEmail,
+  saveGoogleChannel,
+  getUserByChannelId,
+  getAllGoogleConnectedUsers,
   getTeam,
   upsertTeam,
   updateUserTeam,

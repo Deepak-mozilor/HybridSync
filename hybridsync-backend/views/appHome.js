@@ -168,8 +168,11 @@ async function buildHomeView(userId) {
     },
   };
 
-  // --- WFH suggestion ---
-  const suggestWFH = meetingLoad?.label === 'Heavy' && todayStatus === 'Office';
+  // --- WFH suggestion — only when most meetings are online/unknown (can be attended remotely) ---
+  const mostlyOnline = meetingLoad
+    ? (meetingLoad.onlineCount + meetingLoad.unknownCount) > meetingLoad.offlineCount
+    : false;
+  const suggestWFH = meetingLoad?.label === 'Heavy' && todayStatus === 'Office' && mostlyOnline;
 
   // --- Best collab day block ---
   let bestDayBlocks = [];
@@ -230,7 +233,7 @@ async function buildHomeView(userId) {
         type: 'section',
         text: {
           type: 'mrkdwn',
-          text: `💡 *Suggestion:* You have *${meetingLoad.count} meetings* today (${meetingLoad.totalMinutes} min total). Back-to-back meetings are often easier from home — consider switching to *WFH 🏠*.`,
+          text: `💡 *Suggestion:* You have *${meetingLoad.count} meetings* today (${meetingLoad.onlineCount} online · ${meetingLoad.offlineCount} offline · ${meetingLoad.unknownCount} unknown). Most can be attended remotely — consider switching to *WFH 🏠*.`,
         },
       },
     ] : []),

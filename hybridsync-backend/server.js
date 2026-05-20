@@ -8,7 +8,11 @@ const db           = require('./db');
 const { upcomingWorkDays } = require('./utils/dates');
 const { syncTeamsFromChannels } = require('./services/teamSync');
 const googleCalendar = require('./services/googleCalendar');
-const { getUserEmail } = googleCalendar;
+const { getUserEmail, watchCalendar } = googleCalendar;
+
+// In-memory cooldown — prevents spamming DMs when calendar changes rapidly
+const wfhDmCooldown = new Map(); // userId → timestamp
+const WFH_DM_COOLDOWN_MS = 60 * 60 * 1000; // 1 hour
 
 const JWT_SECRET = process.env.JWT_SECRET || 'hybridsync-secret';
 
@@ -219,6 +223,9 @@ app.get('/api/google/callback', async (req, res) => {
     const email  = await getUserEmail(tokens).catch(() => null);
     await db.saveGoogleTokens(userId, tokens);
     if (email) await db.saveGoogleEmail(userId, email);
+    watchCalendar(userId, tokens).catch(e =>
+      console.error('[Google] Failed to set up webhook:', e.message)
+    );
     console.log(`[Google] Saved calendar tokens for ${userId} (${email || 'email unavailable'})`);
     res.send(`<html><body style="font-family:system-ui;text-align:center;padding-top:60px;color:#1e293b">
       <div style="font-size:48px;margin-bottom:16px">✅</div>
@@ -229,6 +236,51 @@ app.get('/api/google/callback', async (req, res) => {
   } catch (e) {
     console.error('[Google] OAuth callback error:', e.message);
     res.status(500).send(`<html><body style="font-family:system-ui;text-align:center;padding-top:60px"><h2>Connection failed: ${e.message}</h2></body></html>`);
+  }
+});
+
+// POST /api/google/webhook — Google Calendar push notification
+app.post('/api/google/webhook', async (req, res) => {
+  res.sendStatus(200); // Respond immediately — Google expects fast response
+
+  const channelId     = req.headers['x-goog-channel-id'];
+  const resourceState = req.headers['x-goog-resource-state'];
+
+  if (!channelId || resourceState === 'sync') return; // Initial handshake — ignore
+
+  try {
+    const user = await db.getUserByChannelId(channelId);
+    if (!user) return;
+
+    const { todayKey } = require('./utils/dates');
+    const today   = todayKey();
+    const tokens  = await db.getGoogleTokens(user.id);
+    if (!tokens) return;
+
+    const [load, statusResult] = await Promise.all([
+      googleCalendar.getMeetingsForDate(user.id, today),
+      db.getStatusForDate(user.id, today),
+    ]);
+
+    if (!load || load.label !== 'Heavy') return;
+    if (statusResult !== 'Office') return;
+
+    // Only suggest WFH if most meetings are online
+    const mostlyOnline = (load.onlineCount + load.unknownCount) > load.offlineCount;
+    if (!mostlyOnline) return;
+
+    // Cooldown check — don't DM same user more than once per hour
+    const lastDm = wfhDmCooldown.get(user.id);
+    if (lastDm && Date.now() - lastDm < WFH_DM_COOLDOWN_MS) return;
+    wfhDmCooldown.set(user.id, Date.now());
+
+    await slackClient.chat.postMessage({
+      channel: user.id,
+      text: `🔴 *Meeting load update:* You now have *${load.count} meetings* today (${load.totalMinutes} min total — ${load.onlineCount} online, ${load.offlineCount} offline). Most can be attended remotely — consider switching to *WFH 🏠*.`,
+    });
+    console.log(`[Google Webhook] WFH suggestion sent to ${user.id}`);
+  } catch (e) {
+    console.error('[Google Webhook] Error:', e.message);
   }
 });
 

@@ -10,6 +10,26 @@ const TABS = [
 ];
 
 function loadStoredAuth() {
+  // Check URL params first — set by Slack OAuth callback redirect
+  const params = new URLSearchParams(window.location.search);
+  const token  = params.get('token');
+  const role   = params.get('role');
+  const name   = params.get('name');
+  const teamId = params.get('teamId') || undefined;
+  const authError = params.get('auth_error');
+
+  if (authError) {
+    window.history.replaceState({}, '', '/');
+    return { error: authError === 'unauthorized' ? 'You are not authorised to access this dashboard.' : 'Login failed. Please try again.' };
+  }
+
+  if (token && role) {
+    localStorage.setItem('hs_token', token);
+    localStorage.setItem('hs_auth', JSON.stringify({ role, teamId, name }));
+    window.history.replaceState({}, '', '/'); // remove token from URL
+    return { role, teamId, name };
+  }
+
   try {
     const raw = localStorage.getItem('hs_auth');
     return raw ? JSON.parse(raw) : null;
@@ -45,7 +65,7 @@ export default function App() {
     setTab(nextTab);
   }
 
-  if (!auth) return <LoginPage onLogin={handleLogin} />;
+  if (!auth || auth.error) return <LoginPage onLogin={handleLogin} authError={auth?.error} />;
 
   async function handleRecalculate() {
     setRecalculating(true);

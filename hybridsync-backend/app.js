@@ -74,5 +74,5 @@ async function backfillGoogleEmails() {
   batch.start(app.client);
 
   // Phase 4 — REST API for the React admin dashboard
-  apiServer.start(3001, app.client);
+  apiServer.start(process.env.PORT || 3001, app.client);
 })();

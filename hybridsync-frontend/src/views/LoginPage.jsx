@@ -1,102 +1,38 @@
-import { useState, useEffect } from 'react';
-import { login, fetchLoginTeams } from '../api';
+const BASE = import.meta.env.VITE_API_BASE_URL || 'http://localhost:3001/api';
 
-export default function LoginPage({ onLogin }) {
-  const [role,     setRole]     = useState('hr');
-  const [password, setPassword] = useState('');
-  const [teamId,   setTeamId]   = useState('');
-  const [teams,    setTeams]    = useState([]);
-  const [error,    setError]    = useState(null);
-  const [loading,  setLoading]  = useState(false);
-
-  useEffect(() => {
-    fetchLoginTeams().then(t => {
-      setTeams(t);
-      if (t.length) setTeamId(t[0].id);
-    }).catch(() => {});
-  }, []);
-
-  async function handleSubmit(e) {
-    e.preventDefault();
-    setError(null);
-    setLoading(true);
-    try {
-      const data = await login(role, password, role === 'manager' ? teamId : undefined);
-      localStorage.setItem('hs_token', data.token);
-      localStorage.setItem('hs_auth',  JSON.stringify({ role: data.role, teamId: data.teamId, name: data.name }));
-      onLogin({ role: data.role, teamId: data.teamId, name: data.name });
-    } catch (err) {
-      setError(err.message);
-    } finally {
-      setLoading(false);
-    }
-  }
+export default function LoginPage({ onLogin, authError }) {
+  const handleSlackLogin = () => {
+    window.location.href = `${BASE.replace('/api', '')}/api/auth/slack`;
+  };
 
   return (
     <div style={styles.page}>
       <div style={styles.card}>
-        {/* Logo / Brand */}
         <div style={styles.brand}>
+          <span style={styles.logo}>🔁</span>
           <span style={styles.brandText}>HybridSync</span>
           <span style={styles.brandSub}>Admin Dashboard</span>
         </div>
 
-        {/* Role toggle */}
-        <div style={styles.roleRow}>
-          {['hr', 'manager'].map(r => (
-            <button
-              key={r}
-              type="button"
-              onClick={() => { setRole(r); setError(null); }}
-              style={{ ...styles.roleBtn, ...(role === r ? styles.roleBtnActive : {}) }}
-            >
-              {r === 'hr' ? '🏢 HR Admin' : '👥 Team Manager'}
-            </button>
-          ))}
-        </div>
+        <p style={styles.desc}>
+          Sign in with your Slack account to access the dashboard.
+          HR admins see the full organisation · Managers see their team.
+        </p>
 
-        <form onSubmit={handleSubmit}>
-          {/* Team selector — manager only */}
-          {role === 'manager' && (
-            <div style={styles.field}>
-              <label style={styles.label}>Select Your Team</label>
-              {teams.length === 0
-                ? <p style={{ fontSize: 12, color: '#9ca3af' }}>No teams found — run Sync Teams first.</p>
-                : (
-                  <select
-                    value={teamId}
-                    onChange={e => setTeamId(e.target.value)}
-                    style={styles.select}
-                  >
-                    {teams.map(t => (
-                      <option key={t.id} value={t.id}>{t.name}</option>
-                    ))}
-                  </select>
-                )
-              }
-            </div>
-          )}
+        {authError && (
+          <div style={styles.error}>{authError}</div>
+        )}
 
-          {/* Password */}
-          <div style={styles.field}>
-            <label style={styles.label}>Password</label>
-            <input
-              type="password"
-              value={password}
-              onChange={e => setPassword(e.target.value)}
-              placeholder="Enter password"
-              required
-              style={styles.input}
-            />
-          </div>
+        <button onClick={handleSlackLogin} style={styles.slackBtn}>
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" style={{ flexShrink: 0 }}>
+            <path d="M5.042 15.165a2.528 2.528 0 0 1-2.52 2.521 2.528 2.528 0 0 1-2.521-2.521 2.527 2.527 0 0 1 2.521-2.52h2.52v2.52zM6.313 15.165a2.527 2.527 0 0 1 2.521-2.52 2.527 2.527 0 0 1 2.521 2.52v6.313A2.528 2.528 0 0 1 8.834 24a2.528 2.528 0 0 1-2.521-2.522v-6.313zM8.834 5.042a2.528 2.528 0 0 1-2.521-2.52A2.528 2.528 0 0 1 8.834 0a2.528 2.528 0 0 1 2.521 2.522v2.52H8.834zM8.834 6.313a2.528 2.528 0 0 1 2.521 2.521 2.528 2.528 0 0 1-2.521 2.521H2.522A2.528 2.528 0 0 1 0 8.834a2.528 2.528 0 0 1 2.522-2.521h6.312zM18.956 8.834a2.528 2.528 0 0 1 2.522-2.521A2.528 2.528 0 0 1 24 8.834a2.528 2.528 0 0 1-2.522 2.521h-2.522V8.834zM17.688 8.834a2.528 2.528 0 0 1-2.523 2.521 2.527 2.527 0 0 1-2.52-2.521V2.522A2.527 2.527 0 0 1 15.165 0a2.528 2.528 0 0 1 2.523 2.522v6.312zM15.165 18.956a2.528 2.528 0 0 1 2.523 2.522A2.528 2.528 0 0 1 15.165 24a2.527 2.527 0 0 1-2.52-2.522v-2.522h2.52zM15.165 17.688a2.527 2.527 0 0 1-2.52-2.523 2.526 2.526 0 0 1 2.52-2.52h6.313A2.527 2.527 0 0 1 24 15.165a2.528 2.528 0 0 1-2.522 2.523h-6.313z" fill="white"/>
+          </svg>
+          Sign in with Slack
+        </button>
 
-          {error && <div style={styles.error}>{error}</div>}
-
-          <button type="submit" disabled={loading} style={styles.submit}>
-            {loading ? 'Signing in…' : 'Sign In'}
-          </button>
-        </form>
-
+        <p style={styles.hint}>
+          Only authorised team members can access this dashboard.
+        </p>
       </div>
     </div>
   );
@@ -110,46 +46,32 @@ const styles = {
   },
   card: {
     background: '#fff', borderRadius: 16, padding: '40px 36px',
-    width: 380, boxShadow: '0 8px 32px rgba(0,0,0,0.10)',
+    width: 400, boxShadow: '0 8px 32px rgba(0,0,0,0.10)',
+    display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 0,
   },
   brand: {
-    textAlign: 'center', marginBottom: 28,
-    display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4,
+    display: 'flex', flexDirection: 'column', alignItems: 'center',
+    gap: 4, marginBottom: 20,
   },
+  logo:      { fontSize: 48, lineHeight: 1, marginBottom: 6 },
   brandText: { fontSize: 26, fontWeight: 800, color: '#1e293b', letterSpacing: -0.5 },
   brandSub:  { fontSize: 12, color: '#6366f1', fontWeight: 600, letterSpacing: 1, textTransform: 'uppercase' },
-  roleRow: {
-    display: 'flex', gap: 8, marginBottom: 24,
-    background: '#f8fafc', borderRadius: 10, padding: 4,
+  desc: {
+    fontSize: 13, color: '#6b7280', textAlign: 'center',
+    lineHeight: 1.6, marginBottom: 24,
   },
-  roleBtn: {
-    flex: 1, padding: '8px 0', borderRadius: 8, border: 'none',
-    background: 'transparent', cursor: 'pointer', fontSize: 13,
-    fontWeight: 500, color: '#6b7280', transition: 'all 0.15s',
+  slackBtn: {
+    display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10,
+    width: '100%', padding: '13px 0', borderRadius: 8, border: 'none',
+    background: '#4A154B', color: '#fff', fontSize: 15, fontWeight: 700,
+    cursor: 'pointer', transition: 'opacity 0.15s', marginBottom: 16,
   },
-  roleBtnActive: {
-    background: '#fff', color: '#4f46e5', fontWeight: 700,
-    boxShadow: '0 1px 4px rgba(0,0,0,0.10)',
+  error: {
+    width: '100%', background: '#fef2f2', border: '1px solid #fecaca',
+    borderRadius: 8, padding: '10px 14px', fontSize: 13, color: '#dc2626',
+    marginBottom: 16, textAlign: 'center',
   },
-  field:  { marginBottom: 16 },
-  label:  { display: 'block', fontSize: 12, fontWeight: 600, color: '#374151', marginBottom: 6 },
-  input:  {
-    width: '100%', padding: '10px 14px', borderRadius: 8,
-    border: '1.5px solid #e5e7eb', fontSize: 14, outline: 'none',
-    boxSizing: 'border-box', transition: 'border-color 0.15s',
-  },
-  select: {
-    width: '100%', padding: '10px 14px', borderRadius: 8,
-    border: '1.5px solid #e5e7eb', fontSize: 14, outline: 'none',
-    boxSizing: 'border-box', background: '#fff', cursor: 'pointer',
-  },
-  error:  {
-    background: '#fef2f2', border: '1px solid #fecaca', borderRadius: 8,
-    padding: '8px 12px', fontSize: 13, color: '#dc2626', marginBottom: 12,
-  },
-  submit: {
-    width: '100%', padding: '11px 0', borderRadius: 8, border: 'none',
-    background: '#6366f1', color: '#fff', fontSize: 14, fontWeight: 700,
-    cursor: 'pointer', transition: 'background 0.15s', marginTop: 4,
+  hint: {
+    fontSize: 11, color: '#9ca3af', textAlign: 'center', margin: 0,
   },
 };

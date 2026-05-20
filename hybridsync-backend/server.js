@@ -14,12 +14,24 @@ const { getUserEmail, watchCalendar } = googleCalendar;
 const wfhDmCooldown = new Map(); // userId → timestamp
 const WFH_DM_COOLDOWN_MS = 60 * 60 * 1000; // 1 hour
 
-const JWT_SECRET = process.env.JWT_SECRET || 'hybridsync-secret';
+const JWT_SECRET   = process.env.JWT_SECRET   || 'hybridsync-secret';
+const BACKEND_URL  = process.env.BACKEND_URL  || 'http://localhost:3001';
+const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:5173';
 
 let slackClient = null;
 
 const app = express();
-app.use(cors());
+const allowedOrigins = [
+  'http://localhost:5173',
+  process.env.FRONTEND_URL,
+].filter(Boolean);
+
+app.use(cors({
+  origin: (origin, cb) => {
+    if (!origin || allowedOrigins.includes(origin)) return cb(null, true);
+    cb(new Error('Not allowed by CORS'));
+  },
+}));
 app.use(express.json());
 
 // JWT auth middleware — verifies Authorization: Bearer <token>
@@ -41,6 +53,74 @@ async function teamNameMap(users) {
   const teams = await Promise.all(ids.map(id => db.getTeam(id)));
   return Object.fromEntries(teams.filter(Boolean).map(t => [t.id, t.name]));
 }
+
+// GET /api/auth/slack — initiate Sign in with Slack (OpenID Connect)
+app.get('/api/auth/slack', (req, res) => {
+  if (!process.env.SLACK_CLIENT_ID) return res.status(503).send('Slack OAuth not configured');
+  const params = new URLSearchParams({
+    client_id:     process.env.SLACK_CLIENT_ID,
+    scope:         'openid profile email',
+    redirect_uri:  `${BACKEND_URL}/api/auth/slack/callback`,
+    response_type: 'code',
+    state:         'hybridsync-dashboard',
+  });
+  res.redirect(`https://slack.com/openid/connect/authorize?${params}`);
+});
+
+// GET /api/auth/slack/callback — Slack redirects here after user authorises
+app.get('/api/auth/slack/callback', async (req, res) => {
+  const { code, error } = req.query;
+  if (error || !code) return res.redirect(`${FRONTEND_URL}?auth_error=cancelled`);
+
+  try {
+    const response = await fetch('https://slack.com/api/openid.connect.token', {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({
+        client_id:     process.env.SLACK_CLIENT_ID,
+        client_secret: process.env.SLACK_CLIENT_SECRET,
+        code,
+        redirect_uri:  `${BACKEND_URL}/api/auth/slack/callback`,
+      }),
+    });
+    const data = await response.json();
+    if (!data.ok) throw new Error(data.error);
+
+    // Decode id_token (JWT) — email and user ID are already in the token, no extra API call needed
+    const payload    = JSON.parse(Buffer.from(data.id_token.split('.')[1], 'base64url').toString());
+    const slackUserId = payload.sub;
+    const name        = payload.name || payload['https://slack.com/user_name'] || slackUserId;
+
+    // Determine dashboard role
+    const hrIds = (process.env.HR_SLACK_IDS || '').split(',').map(s => s.trim()).filter(Boolean);
+
+    let role, teamId, displayName;
+
+    if (hrIds.includes(slackUserId)) {
+      role        = 'hr';
+      displayName = name;
+    } else {
+      // Check if this user is a manager of any team
+      const teams       = await db.getAllTeams();
+      const managedTeam = teams.find(t => t.managerId === slackUserId);
+      if (managedTeam) {
+        role        = 'manager';
+        teamId      = managedTeam.id;
+        displayName = managedTeam.name;
+      } else {
+        return res.redirect(`${FRONTEND_URL}?auth_error=unauthorized`);
+      }
+    }
+
+    const token = jwt.sign({ role, teamId, name: displayName }, JWT_SECRET, { expiresIn: '12h' });
+    const params = new URLSearchParams({ token, role, name: displayName });
+    if (teamId) params.set('teamId', teamId);
+    res.redirect(`${FRONTEND_URL}?${params}`);
+  } catch (e) {
+    console.error('[SlackAuth] Callback error:', e.message);
+    res.redirect(`${FRONTEND_URL}?auth_error=${encodeURIComponent(e.message)}`);
+  }
+});
 
 // POST /api/auth/login
 app.post('/api/auth/login', async (req, res) => {
@@ -147,6 +227,16 @@ app.get('/api/teams', requireAuth, async (req, res) => {
   const teamIds = [...new Set(users.map(u => u.teamId).filter(id => id && typeof id === 'string'))];
   const teams   = await Promise.all(teamIds.map(id => db.getTeam(id)));
   res.json(teams.filter(Boolean));
+});
+
+// POST /api/teams/:teamId/manager — set manager { managerId: 'U...' }
+app.post('/api/teams/:teamId/manager', requireAuth, async (req, res) => {
+  const { managerId } = req.body;
+  if (!managerId) return res.status(400).json({ error: 'managerId required' });
+  const team = await db.getTeam(req.params.teamId);
+  if (!team) return res.status(404).json({ error: 'Team not found' });
+  const updated = await db.upsertTeam({ ...team, managerId });
+  res.json(updated);
 });
 
 // POST /api/teams/:teamId/anchor — update anchor days { anchorDays: ['Tue', 'Wed'] }

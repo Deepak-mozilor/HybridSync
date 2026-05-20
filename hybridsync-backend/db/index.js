@@ -276,6 +276,12 @@ async function getTeam(teamId) {
   return data ? toTeam(data) : null;
 }
 
+async function getAllTeams() {
+  const { data, error } = await supabase.from('teams').select('*');
+  if (error) throw new Error(`getAllTeams: ${error.message}`);
+  return (data || []).map(toTeam);
+}
+
 async function upsertTeam(teamData) {
   const row = {
     id:          teamData.id,
@@ -374,6 +380,7 @@ module.exports = {
   getUserByChannelId,
   getAllGoogleConnectedUsers,
   getTeam,
+  getAllTeams,
   upsertTeam,
   updateUserTeam,
   getTeammates,

@@ -1,22 +1,33 @@
 import { useEffect, useState, useCallback } from 'react';
-import { fetchGraph, fetchWeekSchedule } from '../api';
+import { fetchGraph, fetchWeekSchedule, fetchTeams, fetchUsers, setTeamManager } from '../api';
 import GraphView    from '../components/GraphView';
 import ScheduleGrid from '../components/ScheduleGrid';
 
 export default function GodView({ onNavigate }) {
-  const [graph,       setGraph]       = useState(null);
-  const [schedule,    setSchedule]    = useState(null);
-  const [error,       setError]       = useState(null);
-  const [lastSync,    setLastSync]    = useState(null);
-  const [refreshing,  setRefreshing]  = useState(false);
+  const [graph,        setGraph]        = useState(null);
+  const [schedule,     setSchedule]     = useState(null);
+  const [teams,        setTeams]        = useState([]);
+  const [users,        setUsers]        = useState([]);
+  const [error,        setError]        = useState(null);
+  const [lastSync,     setLastSync]     = useState(null);
+  const [refreshing,   setRefreshing]   = useState(false);
   const [expandedCard, setExpandedCard] = useState(null);
+  const [managerSelections, setManagerSelections] = useState({});
+  const [savingTeam,   setSavingTeam]   = useState(null);
+  const [savedTeam,    setSavedTeam]    = useState(null);
 
   const load = useCallback(async (showSpinner = false) => {
     if (showSpinner) setRefreshing(true);
     try {
-      const [g, s] = await Promise.all([fetchGraph(), fetchWeekSchedule()]);
+      const [g, s, t, u] = await Promise.all([fetchGraph(), fetchWeekSchedule(), fetchTeams(), fetchUsers()]);
       setGraph(g);
       setSchedule(s);
+      setTeams(t);
+      setUsers(u);
+      // Pre-fill manager selections with current values
+      const selections = {};
+      t.forEach(team => { if (team.managerId) selections[team.id] = team.managerId; });
+      setManagerSelections(prev => ({ ...selections, ...prev }));
       setLastSync(new Date());
       setError(null);
     } catch {
@@ -140,6 +151,58 @@ export default function GodView({ onNavigate }) {
 
       <h3 style={{ ...h2Style, fontSize: 17, marginTop: 32 }}>This Week's Schedule</h3>
       <ScheduleGrid rows={schedule?.rows} dates={schedule?.dates} />
+
+      <h3 style={{ ...h2Style, fontSize: 17, marginTop: 32, marginBottom: 6 }}>Team Management</h3>
+      <p style={{ color: '#6b7280', fontSize: 13, marginBottom: 16 }}>
+        Set the manager for each team. Managers can log in to the dashboard and view their team's schedule.
+      </p>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+        {teams.map(team => {
+          const teamUsers = users.filter(u => u.teamId === team.id);
+          const currentManager = users.find(u => u.id === team.managerId);
+          return (
+            <div key={team.id} style={{ display: 'flex', alignItems: 'center', gap: 12, background: '#fff', border: '1.5px solid #e5e7eb', borderRadius: 10, padding: '12px 18px' }}>
+              <div style={{ fontWeight: 700, fontSize: 14, color: '#1e293b', minWidth: 140 }}>
+                #{team.name}
+              </div>
+              <div style={{ fontSize: 12, color: '#9ca3af', minWidth: 160 }}>
+                {currentManager ? `Manager: ${currentManager.displayName}` : 'No manager set'}
+              </div>
+              <select
+                value={managerSelections[team.id] || ''}
+                onChange={e => setManagerSelections(prev => ({ ...prev, [team.id]: e.target.value }))}
+                style={{ flex: 1, padding: '7px 10px', borderRadius: 7, border: '1.5px solid #e5e7eb', fontSize: 13, color: '#374151' }}
+              >
+                <option value="">— Select manager —</option>
+                {teamUsers.map(u => (
+                  <option key={u.id} value={u.id}>{u.displayName}</option>
+                ))}
+              </select>
+              <button
+                disabled={savingTeam === team.id || !managerSelections[team.id]}
+                onClick={async () => {
+                  setSavingTeam(team.id);
+                  await setTeamManager(team.id, managerSelections[team.id]);
+                  setSavingTeam(null);
+                  setSavedTeam(team.id);
+                  setTimeout(() => setSavedTeam(null), 2000);
+                  load();
+                }}
+                style={{
+                  padding: '7px 18px', borderRadius: 7, border: 'none', fontSize: 13, fontWeight: 600,
+                  background: savedTeam === team.id ? '#10b981' : '#6366f1',
+                  color: '#fff', cursor: managerSelections[team.id] ? 'pointer' : 'not-allowed',
+                  opacity: managerSelections[team.id] ? 1 : 0.5, transition: 'background 0.2s',
+                  minWidth: 80,
+                }}
+              >
+                {savingTeam === team.id ? 'Saving…' : savedTeam === team.id ? '✓ Saved' : 'Set'}
+              </button>
+            </div>
+          );
+        })}
+        {teams.length === 0 && <p style={{ color: '#9ca3af', fontSize: 13 }}>No teams found — run Sync Teams first.</p>}
+      </div>
     </div>
   );
 }

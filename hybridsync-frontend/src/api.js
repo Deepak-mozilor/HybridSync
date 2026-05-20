@@ -1,4 +1,4 @@
-const BASE = 'http://localhost:3001/api';
+const BASE = import.meta.env.VITE_API_BASE_URL || 'http://localhost:3001/api';
 
 function authHeaders() {
   const token = localStorage.getItem('hs_token');
@@ -35,6 +35,14 @@ export async function fetchUsers()       { return (await authedFetch(`${BASE}/us
 export async function fetchGraph()       { return (await authedFetch(`${BASE}/graph`)).json(); }
 export async function fetchWeekSchedule(){ return (await authedFetch(`${BASE}/schedule/week`)).json(); }
 export async function fetchTeams()       { return (await authedFetch(`${BASE}/teams`)).json(); }
+export async function setTeamManager(teamId, managerId) {
+  return (await authedFetch(`${BASE}/teams/${teamId}/manager`, {
+    method:  'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body:    JSON.stringify({ managerId }),
+  })).json();
+}
+
 export async function updateAnchor(teamId, anchorDays) {
   return (await authedFetch(`${BASE}/teams/${teamId}/anchor`, {
     method:  'POST',

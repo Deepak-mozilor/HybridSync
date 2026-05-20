@@ -24,7 +24,7 @@ export default function SquadView({ focusTeam }) {
       setLastSync(new Date());
       setError(null);
     } catch {
-      setError('Cannot reach backend. Is the server running on port 3001?');
+      setError('Cannot reach the server. Please try again in a moment.');
     } finally {
       setRefreshing(false);
     }

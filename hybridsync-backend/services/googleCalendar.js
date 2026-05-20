@@ -54,10 +54,12 @@ async function getMeetingsForDate(userId, dateKey) {
     e => e.status !== 'cancelled' && e.start?.dateTime
   );
 
-  // Classify each meeting as online, offline, or unknown
+  // Classify each meeting as online, offline, or unknown.
+  // Location takes priority — if a physical location is set, you need to be there
+  // regardless of whether a Meet link was also added.
   function classifyEvent(e) {
-    if (e.conferenceData?.entryPoints?.length) return 'online';
     if (e.location && e.location.trim().length > 0) return 'offline';
+    if (e.conferenceData?.entryPoints?.length) return 'online';
     return 'unknown';
   }
 

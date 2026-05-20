@@ -220,9 +220,13 @@ app.get('/api/google/callback', async (req, res) => {
   }
   try {
     const tokens = await googleCalendar.exchangeCode(code);
-    const email  = await getUserEmail(tokens).catch(() => null);
+    const email  = await getUserEmail(tokens).catch(e => {
+      console.error('[Google] Failed to get email:', e.message);
+      return null;
+    });
     await db.saveGoogleTokens(userId, tokens);
     if (email) await db.saveGoogleEmail(userId, email);
+    else console.warn('[Google] Email not returned — check OAuth scopes');
     watchCalendar(userId, tokens).catch(e =>
       console.error('[Google] Failed to set up webhook:', e.message)
     );

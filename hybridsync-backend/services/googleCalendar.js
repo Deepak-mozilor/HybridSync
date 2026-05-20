@@ -13,7 +13,10 @@ function generateAuthUrl(userId) {
   const client = createOAuthClient();
   return client.generateAuthUrl({
     access_type: 'offline',
-    scope: ['https://www.googleapis.com/auth/calendar.readonly'],
+    scope: [
+      'https://www.googleapis.com/auth/calendar.readonly',
+      'https://www.googleapis.com/auth/userinfo.email',
+    ],
     state: userId,
     prompt: 'consent',
   });

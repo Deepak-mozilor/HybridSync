@@ -265,26 +265,24 @@ async function buildHomeView(userId) {
     divider(),
 
     md('*📅 Google Calendar*'),
-    googleConnected
-      ? ctx('✅ *Connected* — your meeting load is visible to HybridSync and used when coordinating schedules.')
-      : {
+    googleAuthUrl
+      ? {
           type: 'section',
           text: {
             type: 'mrkdwn',
-            text: googleAuthUrl
-              ? '📆 *Not connected* — link Google Calendar so HybridSync can factor your meeting load into schedule coordination.'
-              : '_Google Calendar is not configured. Ask your admin to set `GOOGLE_CLIENT_ID`._',
+            text: googleConnected
+              ? '✅ *Connected* — your meeting load is visible to HybridSync and used when coordinating schedules.'
+              : '📆 *Not connected* — link Google Calendar so HybridSync can factor your meeting load into schedule coordination.',
           },
-          ...(googleAuthUrl ? {
-            accessory: {
-              type:      'button',
-              text:      { type: 'plain_text', text: '📅 Connect Google Calendar', emoji: true },
-              style:     'primary',
-              url:       googleAuthUrl,
-              action_id: 'connect_google_calendar',
-            },
-          } : {}),
-        },
+          accessory: {
+            type:      'button',
+            text:      { type: 'plain_text', text: googleConnected ? '🔄 Reconnect' : '📅 Connect Google Calendar', emoji: true },
+            style:     googleConnected ? undefined : 'primary',
+            url:       googleAuthUrl,
+            action_id: 'connect_google_calendar',
+          },
+        }
+      : ctx('_Google Calendar is not configured. Ask your admin to set `GOOGLE_CLIENT_ID`._'),
     divider(),
 
     md('*🔗 Slack Status Sync*'),

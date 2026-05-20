@@ -93,17 +93,32 @@ function register(app) {
     const question = (message.text || '').trim();
     if (!question) return;
 
+    // Post a loading indicator immediately so the user knows the bot is working
+    const loading = await client.chat.postMessage({
+      channel: message.channel,
+      text: '_🤔 Thinking..._',
+    }).catch(() => null);
+
     try {
       const reply = await chat(message.user, question, client);
-      if (reply) {
+      if (loading) {
+        // Replace the loading message with the real response
+        await client.chat.update({
+          channel: message.channel,
+          ts:      loading.ts,
+          text:    reply || "I couldn't find an answer. Try rephrasing your question.",
+        });
+      } else if (reply) {
         await client.chat.postMessage({ channel: message.channel, text: reply });
       }
     } catch (err) {
       logger.error('[Chatbot] Error:', err);
-      await client.chat.postMessage({
-        channel: message.channel,
-        text: "Sorry, I hit an error. Try asking something like: _Is Jithu WFH on Wednesday?_",
-      });
+      const errorText = "Sorry, I hit an error. Try asking something like: _Is Jithu WFH on Wednesday?_";
+      if (loading) {
+        await client.chat.update({ channel: message.channel, ts: loading.ts, text: errorText }).catch(() => {});
+      } else {
+        await client.chat.postMessage({ channel: message.channel, text: errorText });
+      }
     }
   });
 }

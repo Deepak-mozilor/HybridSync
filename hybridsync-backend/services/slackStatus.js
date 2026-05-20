@@ -1,6 +1,7 @@
 const { WebClient } = require('@slack/web-api');
 const db = require('../db');
 const { todayKey } = require('../utils/dates');
+const { markSyncedByUs } = require('../listeners/slackStatusSync');
 
 const PROFILES = {
   WFH:    { status_emoji: ':house:',                 status_text: 'Working from home' },
@@ -25,6 +26,7 @@ async function syncToProfile(userId, status, dateKey) {
   if (!profile) return;
 
   try {
+    markSyncedByUs(userId); // prevent loop — ignore the user_change event this triggers
     const client = new WebClient(token);
     await client.users.profile.set({
       profile: JSON.stringify({

@@ -6,9 +6,10 @@ const slackStatus = require('./services/slackStatus');
 // Sync Slack profile status whenever any HybridSync status is saved
 db.onStatusChange(slackStatus.syncToProfile);
 
-const streamListener    = require('./listeners/stream');
-const appHomeListener   = require('./listeners/appHome');
-const chatbotListener   = require('./listeners/chatbot');
+const streamListener      = require('./listeners/stream');
+const appHomeListener     = require('./listeners/appHome');
+const chatbotListener     = require('./listeners/chatbot');
+const slackStatusListener = require('./listeners/slackStatusSync');
 const overrideActions   = require('./actions/override');
 const negotiationActions = require('./actions/negotiation');
 const manageDepsActions  = require('./actions/manageDeps');
@@ -28,6 +29,9 @@ const app = new App({
 
 // Phase 2A — The Stream (deterministic, NO AI)
 streamListener.register(app);
+
+// Slack native status → HybridSync sync (reverse direction)
+slackStatusListener.register(app);
 
 // Phase 2B — Employee App Home UI
 appHomeListener.register(app);

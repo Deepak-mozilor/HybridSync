@@ -2,7 +2,10 @@ const BASE = import.meta.env.VITE_API_BASE_URL || 'http://localhost:3001/api';
 
 function authHeaders() {
   const token = localStorage.getItem('hs_token');
-  return token ? { Authorization: `Bearer ${token}` } : {};
+  return {
+    ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    'ngrok-skip-browser-warning': '1',
+  };
 }
 
 async function authedFetch(url, opts = {}) {
@@ -19,11 +22,15 @@ async function authedFetch(url, opts = {}) {
   return res;
 }
 
-export async function fetchLoginTeams() { return (await fetch(`${BASE}/auth/teams`)).json(); }
+const BYPASS = { 'ngrok-skip-browser-warning': '1' };
+
+export async function fetchLoginTeams() {
+  return (await fetch(`${BASE}/auth/teams`, { headers: BYPASS })).json();
+}
 export async function login(role, password, teamId) {
   const res = await fetch(`${BASE}/auth/login`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', ...BYPASS },
     body: JSON.stringify({ role, password, teamId }),
   });
   const data = await res.json();

@@ -222,6 +222,23 @@ async function getGoogleTokens(userId) {
   return data?.google_tokens || null;
 }
 
+async function saveGoogleEmail(userId, email) {
+  const { error } = await supabase
+    .from('users')
+    .update({ google_email: email })
+    .eq('id', userId);
+  if (error) throw new Error(`saveGoogleEmail: ${error.message}`);
+}
+
+async function getGoogleEmail(userId) {
+  const { data } = await supabase
+    .from('users')
+    .select('google_email')
+    .eq('id', userId)
+    .maybeSingle();
+  return data?.google_email || null;
+}
+
 // ---------------------------------------------------------------------------
 // Teams
 // ---------------------------------------------------------------------------
@@ -324,6 +341,8 @@ module.exports = {
   getUserToken,
   saveGoogleTokens,
   getGoogleTokens,
+  saveGoogleEmail,
+  getGoogleEmail,
   getTeam,
   upsertTeam,
   updateUserTeam,

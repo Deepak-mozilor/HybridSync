@@ -5,6 +5,7 @@
 const cron = require('node-cron');
 const db = require('../db');
 const { runAgentLoop, complete, getProvider } = require('./provider');
+const { getSharedMeetingCount } = require('../services/googleCalendar');
 
 // ---------------------------------------------------------------------------
 // Slack interaction fetcher — replaces the hardcoded simulation.
@@ -121,11 +122,18 @@ async function runWeeklyMapping(slackClient) {
     return;
   }
 
+  // Enrich interactions with shared Google Calendar meeting counts where available
+  const enriched = await Promise.all(interactions.map(async i => {
+    const sharedMeetings = await getSharedMeetingCount(i.userA, i.userB, 30).catch(() => 0);
+    return { ...i, shared_meetings: sharedMeetings };
+  }));
+
   const prompt = `Analyze these 30-day interaction counts and compute a Dependency Score (1-10) per user pair.
 Scoring: 9-10 = critical daily collaborators, 7-8 = high, 5-6 = moderate, 3-4 = low, 1-2 = minimal.
+shared_meetings counts recurring calendar meetings with both users as attendees — weight this heavily as it indicates structured collaboration.
 
 Data:
-${interactions.map(i => `- ${i.userA} <-> ${i.userB}: ${i.messages} msgs, ${i.replies} replies, ${i.reactions} reactions`).join('\n')}
+${enriched.map(i => `- ${i.userA} <-> ${i.userB}: ${i.messages} msgs, ${i.replies} replies, ${i.reactions} reactions, ${i.shared_meetings} shared meetings`).join('\n')}
 
 Output ONLY a JSON array (no prose):
 [{"userId":"...","peerId":"...","score":N}, ...]

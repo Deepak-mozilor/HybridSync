@@ -74,4 +74,45 @@ async function getMeetingsForDate(userId, dateKey) {
   };
 }
 
-module.exports = { generateAuthUrl, exchangeCode, getMeetingsForDate };
+async function getUserEmail(tokens) {
+  const client = createOAuthClient();
+  client.setCredentials(tokens);
+  const oauth2 = google.oauth2({ version: 'v2', auth: client });
+  const { data } = await oauth2.userinfo.get();
+  return data.email;
+}
+
+// Count meetings in the last `days` days where both userA and userB are attendees.
+// Only works if userA has connected Google Calendar and userB has a stored Google email.
+async function getSharedMeetingCount(userIdA, userIdB, days = 30) {
+  const [tokensA, emailB] = await Promise.all([
+    db.getGoogleTokens(userIdA),
+    db.getGoogleEmail(userIdB),
+  ]);
+  if (!tokensA || !emailB) return 0;
+
+  const client = createOAuthClient();
+  client.setCredentials(tokensA);
+  client.on('tokens', async (newTokens) => {
+    await db.saveGoogleTokens(userIdA, { ...tokensA, ...newTokens }).catch(() => {});
+  });
+
+  const calendar = google.calendar({ version: 'v3', auth: client });
+  const timeMin = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
+  const timeMax = new Date().toISOString();
+
+  const res = await calendar.events.list({
+    calendarId: 'primary',
+    timeMin,
+    timeMax,
+    singleEvents: true,
+    fields: 'items(attendees,status)',
+  });
+
+  const events = (res.data.items || []).filter(e => e.status !== 'cancelled');
+  return events.filter(e =>
+    (e.attendees || []).some(a => a.email?.toLowerCase() === emailB.toLowerCase())
+  ).length;
+}
+
+module.exports = { generateAuthUrl, exchangeCode, getMeetingsForDate, getUserEmail, getSharedMeetingCount };

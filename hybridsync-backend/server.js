@@ -8,6 +8,7 @@ const db           = require('./db');
 const { upcomingWorkDays } = require('./utils/dates');
 const { syncTeamsFromChannels } = require('./services/teamSync');
 const googleCalendar = require('./services/googleCalendar');
+const { getUserEmail } = googleCalendar;
 
 const JWT_SECRET = process.env.JWT_SECRET || 'hybridsync-secret';
 
@@ -215,8 +216,10 @@ app.get('/api/google/callback', async (req, res) => {
   }
   try {
     const tokens = await googleCalendar.exchangeCode(code);
+    const email  = await getUserEmail(tokens).catch(() => null);
     await db.saveGoogleTokens(userId, tokens);
-    console.log(`[Google] Saved calendar tokens for ${userId}`);
+    if (email) await db.saveGoogleEmail(userId, email);
+    console.log(`[Google] Saved calendar tokens for ${userId} (${email || 'email unavailable'})`);
     res.send(`<html><body style="font-family:system-ui;text-align:center;padding-top:60px;color:#1e293b">
       <div style="font-size:48px;margin-bottom:16px">✅</div>
       <h2 style="margin:0 0 8px">Google Calendar Connected!</h2>

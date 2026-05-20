@@ -4,6 +4,7 @@ const { runAgentLoop } = require('./provider');
 const orchestrator = require('./orchestrator');
 const { notifyDependents, shouldNotify } = require('../services/notifications');
 const { getMeetingsForDate } = require('../services/googleCalendar');
+const { checkWFHConflict } = require('../services/calendarAlerts');
 
 // Per-user conversation history (in-memory, resets on restart).
 // Stores plain text exchanges only — no tool call payloads.
@@ -168,6 +169,7 @@ SLACK FORMATTING RULES (strictly follow these):
           return JSON.stringify({ error: `Cannot update status more than 1 month in advance (${input.date}). Please choose a date on or before ${maxKey}.` });
         }
         await db.setStatus(requestingUserId, input.date, input.status);
+        checkWFHConflict(slackClient, requestingUserId, input.date, input.status).catch(() => {});
         if (shouldNotify(requestingUserId, input.date)) {
           if (input.date === todayKey()) {
             orchestrator.run(requestingUserId, input.date, input.status, slackClient).catch(e =>

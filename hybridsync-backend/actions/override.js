@@ -2,6 +2,7 @@ const db = require('../db');
 const { buildOverrideModal, parseModalValues } = require('../views/overrideModal');
 const { publishHome } = require('../views/appHome');
 const { notifyDependents } = require('../services/notifications');
+const { checkWFHConflict } = require('../services/calendarAlerts');
 const { todayKey } = require('../utils/dates');
 
 const LOADING_VIEW = {
@@ -64,6 +65,7 @@ function register(app) {
       const updates = parseModalValues(view);
       for (const [dateKey, status] of Object.entries(updates)) {
         await db.setStatus(userId, dateKey, status);
+        checkWFHConflict(client, userId, dateKey, status).catch(() => {});
         notifyDependents(client, userId, dateKey, status).catch(e =>
           logger.error('[Override] notifyDependents error:', e)
         );

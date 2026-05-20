@@ -5,6 +5,7 @@ const orchestrator = require('../ai/orchestrator');
 const { resolveDisplayName } = require('./appHome');
 const { assignUserToChannel } = require('../services/teamSync');
 const { notifyDependents, shouldNotify } = require('../services/notifications');
+const { checkWFHConflict } = require('../services/calendarAlerts');
 const Anthropic = require('@anthropic-ai/sdk');
 
 const STATUS_EMOJI = { WFH: '🏠', Office: '🏢', Sick: '🤒', Leave: '🌴' };
@@ -100,6 +101,7 @@ function register(app) {
       }
 
       await db.setStatus(message.user, dateKey, hit.status);
+      checkWFHConflict(client, message.user, dateKey, hit.status).catch(() => {});
 
       await say({
         text: `✅ Got it! Your HybridSync status is *${hit.status}* for *${label}*.`,

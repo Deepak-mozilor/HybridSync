@@ -3,6 +3,7 @@ const { upcomingWorkDays, todayKey } = require('../utils/dates');
 const { runAgentLoop } = require('./provider');
 const orchestrator = require('./orchestrator');
 const { notifyDependents, shouldNotify } = require('../services/notifications');
+const { getMeetingsForDate } = require('../services/googleCalendar');
 
 // Per-user conversation history (in-memory, resets on restart).
 // Stores plain text exchanges only — no tool call payloads.
@@ -45,6 +46,29 @@ const TOOLS = [
     },
   },
   {
+    name: 'get_my_meetings',
+    description: 'Get the requesting user\'s Google Calendar meetings for a specific date. Returns meeting titles, times, total duration, and load label. Returns null if Google Calendar is not connected.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        date: { type: 'string', description: 'Date in YYYY-MM-DD format' },
+      },
+      required: ['date'],
+    },
+  },
+  {
+    name: 'get_user_meetings',
+    description: 'Get another user\'s meeting load for a specific date — returns count, total minutes, and label only (no titles, for privacy). Returns null if they have not connected Google Calendar.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        userId: { type: 'string', description: 'User ID from find_user' },
+        date:   { type: 'string', description: 'Date in YYYY-MM-DD format' },
+      },
+      required: ['userId', 'date'],
+    },
+  },
+  {
     name: 'set_my_status',
     description: 'Update the requesting user\'s own work status for a given date.',
     input_schema: {
@@ -73,6 +97,9 @@ Guidelines:
 - To look someone up by name, ALWAYS call find_user first, then get_user_schedule with their userId.
 - Use get_team_schedule for broad team overview questions.
 - Use set_my_status only when the user explicitly wants to change their own schedule. Only today up to 1 month ahead is allowed — never set status for a past date or more than 1 month in the future.
+- Use get_my_meetings to answer questions about the user's own calendar — "am I free Friday?", "how many meetings do I have?", "should I WFH today?".
+- Use get_user_meetings to check a peer's meeting load — combine with get_user_schedule to suggest the best day to meet in person.
+- If Google Calendar is not connected, tell the user they can connect it from the App Home tab.
 - Reply conversationally and concisely. Use emojis: 🏠 WFH · 🏢 Office · 🤒 Sick · 🌴 Leave.
 - If a user asks about "Wednesday", resolve it using the upcoming work days listed above.
 - Never make up schedule data — always call a tool to retrieve it.
@@ -116,6 +143,18 @@ SLACK FORMATTING RULES (strictly follow these):
           });
         }
         return JSON.stringify(rows);
+      }
+
+      case 'get_my_meetings': {
+        const load = await getMeetingsForDate(requestingUserId, input.date).catch(() => null);
+        return JSON.stringify(load || { connected: false, message: 'Google Calendar not connected.' });
+      }
+
+      case 'get_user_meetings': {
+        const load = await getMeetingsForDate(input.userId, input.date).catch(() => null);
+        if (!load) return JSON.stringify({ connected: false });
+        // Return load summary only — no meeting titles for privacy
+        return JSON.stringify({ count: load.count, totalMinutes: load.totalMinutes, label: load.label, emoji: load.emoji });
       }
 
       case 'set_my_status': {

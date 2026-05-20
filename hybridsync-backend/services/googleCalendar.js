@@ -66,6 +66,11 @@ async function getMeetingsForDate(userId, dateKey) {
     totalMinutes: Math.round(totalMinutes),
     label,
     emoji,
+    slots: events.map(e => ({
+      title: e.summary || 'Meeting',
+      start: new Date(e.start.dateTime).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true }),
+      end:   new Date(e.end.dateTime).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true }),
+    })),
   };
 }
 

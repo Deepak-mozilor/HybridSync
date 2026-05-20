@@ -14,6 +14,7 @@ const negotiationActions = require('./actions/negotiation');
 const manageDepsActions  = require('./actions/manageDeps');
 const batch             = require('./ai/batch');
 const apiServer         = require('./server');
+const { getUserEmail }  = require('./services/googleCalendar');
 
 // TODO(Firebase swap): change db/index.js to a firebase-admin Firestore
 // implementation. All consumers already use its async API — one file change.
@@ -43,9 +44,27 @@ negotiationActions.register(app);
 // Phase 4B — Manage Dependencies modal
 manageDepsActions.register(app);
 
+async function backfillGoogleEmails() {
+  const users = await db.getAllGoogleConnectedUsers().catch(() => []);
+  for (const user of users) {
+    const existingEmail = await db.getGoogleEmail(user.id).catch(() => null);
+    if (existingEmail) continue;
+    const tokens = await db.getGoogleTokens(user.id).catch(() => null);
+    if (!tokens) continue;
+    const email = await getUserEmail(tokens).catch(() => null);
+    if (email) {
+      await db.saveGoogleEmail(user.id, email).catch(() => {});
+      console.log(`[Backfill] Saved Google email for ${user.id}: ${email}`);
+    }
+  }
+}
+
 (async () => {
   await app.start();
   console.log('⚡️ HybridSync Bolt app is running in Socket Mode.');
+
+  // Backfill Google emails for users who connected before email-saving was added
+  backfillGoogleEmails().catch(e => console.error('[Backfill] Error:', e.message));
 
   // Phase 3 — Start scheduled AI batch jobs (pass client for live Slack reads)
   batch.start(app.client);

@@ -42,16 +42,16 @@ describe('requireAuth middleware', () => {
   });
 
   it('rejects request with wrong secret', async () => {
-    const token = jwt.sign({ role: 'hr' }, 'wrong-secret');
+    const token = jwt.sign({ role: 'admin' }, 'wrong-secret');
     const res = await request(app).get('/protected').set('Authorization', `Bearer ${token}`);
     expect(res.status).toBe(401);
   });
 
-  it('allows request with a valid HR token', async () => {
-    const token = jwt.sign({ role: 'hr', name: 'HR Admin' }, JWT_SECRET);
+  it('allows request with a valid admin token', async () => {
+    const token = jwt.sign({ role: 'admin', name: 'Admin' }, JWT_SECRET);
     const res = await request(app).get('/protected').set('Authorization', `Bearer ${token}`);
     expect(res.status).toBe(200);
-    expect(res.body.role).toBe('hr');
+    expect(res.body.role).toBe('admin');
   });
 
   it('allows request with a valid manager token', async () => {
@@ -62,7 +62,7 @@ describe('requireAuth middleware', () => {
   });
 
   it('rejects an expired token', async () => {
-    const token = jwt.sign({ role: 'hr' }, JWT_SECRET, { expiresIn: 1 });
+    const token = jwt.sign({ role: 'admin' }, JWT_SECRET, { expiresIn: 1 });
     await new Promise(r => setTimeout(r, 1100));
     const res = await request(app).get('/protected').set('Authorization', `Bearer ${token}`);
     expect(res.status).toBe(401);

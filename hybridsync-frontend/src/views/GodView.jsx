@@ -73,7 +73,7 @@ export default function GodView({ onNavigate }) {
   return (
     <div>
       <div style={{ display: 'flex', alignItems: 'baseline', gap: 12, marginBottom: 6 }}>
-        <h2 style={h2Style}>HR God View — Company Dependency Graph</h2>
+        <h2 style={h2Style}>Admin View — Company Dependency Graph</h2>
         <button onClick={() => load(true)} disabled={refreshing} style={refreshBtn}>
           {refreshing ? 'Refreshing…' : '↻ Refresh'}
         </button>

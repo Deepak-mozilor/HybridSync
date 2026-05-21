@@ -43,3 +43,19 @@ ALTER TABLE users ADD COLUMN IF NOT EXISTS google_tokens         JSONB;
 ALTER TABLE users ADD COLUMN IF NOT EXISTS google_email          TEXT;
 ALTER TABLE users ADD COLUMN IF NOT EXISTS google_channel_id     TEXT;
 ALTER TABLE users ADD COLUMN IF NOT EXISTS google_channel_expiry BIGINT;
+
+-- Role column already exists above; ensure default for any pre-existing rows
+ALTER TABLE users ADD COLUMN IF NOT EXISTS role TEXT NOT NULL DEFAULT 'employee';
+
+-- Slack workspace installations — one row per workspace that installs the app.
+-- Bolt's installationStore reads/writes the `installation` JSONB to recover
+-- the per-team bot token at runtime.
+CREATE TABLE IF NOT EXISTS workspaces (
+  id                TEXT PRIMARY KEY,        -- Slack team_id (T0XXXXX)
+  name              TEXT NOT NULL,
+  bot_token         TEXT NOT NULL,
+  bot_user_id       TEXT,
+  installer_user_id TEXT NOT NULL,
+  installation      JSONB NOT NULL,
+  installed_at      TIMESTAMPTZ DEFAULT NOW()
+);

@@ -14,13 +14,15 @@ async function syncTeamsFromChannels(slackClient) {
   const results = [];
 
   for (const ch of listResp.channels.filter(c => c.is_member)) {
-    // Preserve anchorDays and managerId already stored for this channel
+    // Preserve anchorDays and managerId already stored for this channel.
+    // For unset managers, default to the channel creator — manual reassignments
+    // in the dashboard always win because existing.managerId is checked first.
     const existing = await db.getTeam(ch.id);
     await db.upsertTeam({
       id:        ch.id,
       name:      ch.name,
       anchorDays: existing?.anchorDays || [],
-      managerId:  existing?.managerId  || null,
+      managerId:  existing?.managerId  || ch.creator || null,
     });
 
     // Assign all current channel members to this team
@@ -58,7 +60,7 @@ async function assignUserToChannel(slackClient, userId, channelId) {
       id:        ch.id,
       name:      ch.name,
       anchorDays: existing?.anchorDays || [],
-      managerId:  existing?.managerId  || null,
+      managerId:  existing?.managerId  || ch.creator || null,
     });
     await db.updateUserTeam(userId, ch.id);
   } catch (e) {

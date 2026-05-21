@@ -374,6 +374,51 @@ async function _updateDependencies(userId, edges) {
 }
 
 // ---------------------------------------------------------------------------
+// Workspaces (Slack OAuth installations) + user role
+// ---------------------------------------------------------------------------
+
+async function upsertWorkspace(installation) {
+  const row = {
+    id:                installation.team.id,
+    name:              installation.team.name,
+    bot_token:         installation.bot.token,
+    bot_user_id:       installation.bot.userId,
+    installer_user_id: installation.user.id,
+    installation,
+  };
+  const { error } = await supabase
+    .from('workspaces')
+    .upsert(row, { onConflict: 'id' });
+  if (error) throw new Error(`upsertWorkspace: ${error.message}`);
+}
+
+async function getWorkspace(teamId) {
+  const { data } = await supabase
+    .from('workspaces').select('*').eq('id', teamId).maybeSingle();
+  return data || null;
+}
+
+async function deleteWorkspace(teamId) {
+  const { error } = await supabase
+    .from('workspaces').delete().eq('id', teamId);
+  if (error) throw new Error(`deleteWorkspace: ${error.message}`);
+}
+
+async function setUserRole(userId, role) {
+  // Ensure the row exists (display_name is NOT NULL), then set role.
+  await ensureUser(userId);
+  const { error } = await supabase
+    .from('users').update({ role }).eq('id', userId);
+  if (error) throw new Error(`setUserRole: ${error.message}`);
+}
+
+async function getUserRole(userId) {
+  const { data } = await supabase
+    .from('users').select('role').eq('id', userId).maybeSingle();
+  return data?.role || null;
+}
+
+// ---------------------------------------------------------------------------
 
 module.exports = {
   STATUS,
@@ -402,4 +447,9 @@ module.exports = {
   getDependencyGraph,
   getAllManualDependencies,
   _updateDependencies,
+  upsertWorkspace,
+  getWorkspace,
+  deleteWorkspace,
+  setUserRole,
+  getUserRole,
 };

@@ -5,8 +5,8 @@ import LoginPage  from './views/LoginPage';
 import { syncTeams, recalculateDeps } from './api';
 
 const TABS = [
-  { id: 'god',   label: 'HR God View',       icon: '🏢', roles: ['hr'] },
-  { id: 'squad', label: 'Manager Squad View', icon: '👥', roles: ['hr', 'manager'] },
+  { id: 'god',   label: 'Admin View',         icon: '🏢', roles: ['admin'] },
+  { id: 'squad', label: 'Manager Squad View', icon: '👥', roles: ['admin', 'manager'] },
 ];
 
 function loadStoredAuth() {
@@ -121,7 +121,7 @@ export default function App() {
         <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 10 }}>
           {syncMsg   && <span style={{ fontSize: 12, color: '#22c55e' }}>{syncMsg}</span>}
           {recalcMsg && <span style={{ fontSize: 12, color: '#22c55e' }}>{recalcMsg}</span>}
-          {auth.role === 'hr' && (
+          {auth.role === 'admin' && (
             <>
               <button
                 onClick={handleRecalculate}
@@ -148,7 +148,7 @@ export default function App() {
             </>
           )}
           <span style={{ fontSize: 12, color: '#6b7280', fontWeight: 500 }}>
-            {auth.role === 'hr' ? '🏢' : '👥'} {auth.name}
+            {auth.role === 'admin' ? '🏢' : '👥'} {auth.name}
           </span>
           <button
             onClick={handleLogout}

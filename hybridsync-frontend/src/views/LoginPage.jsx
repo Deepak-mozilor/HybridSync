@@ -1,4 +1,5 @@
 const BASE = import.meta.env.VITE_API_BASE_URL || 'http://localhost:3001/api';
+const INSTALL_URL = 'https://hybridsync-backend-production.up.railway.app/slack/install';
 
 export default function LoginPage({ onLogin, authError }) {
   const handleSlackLogin = () => {
@@ -16,7 +17,7 @@ export default function LoginPage({ onLogin, authError }) {
 
         <p style={styles.desc}>
           Sign in with your Slack account to access the dashboard.
-          HR admins see the full organisation · Managers see their team.
+          Admins see the full organisation · Managers see their team.
         </p>
 
         {authError && (
@@ -29,6 +30,10 @@ export default function LoginPage({ onLogin, authError }) {
           </svg>
           Sign in with Slack
         </button>
+
+        <a href={INSTALL_URL} style={styles.installLink}>
+          + Add HybridSync to your Slack workspace
+        </a>
 
         <p style={styles.hint}>
           Only authorised team members can access this dashboard.
@@ -69,6 +74,10 @@ const styles = {
   error: {
     width: '100%', background: '#fef2f2', border: '1px solid #fecaca',
     borderRadius: 8, padding: '10px 14px', fontSize: 13, color: '#dc2626',
+    marginBottom: 16, textAlign: 'center',
+  },
+  installLink: {
+    fontSize: 13, color: '#4f46e5', textDecoration: 'none', fontWeight: 600,
     marginBottom: 16, textAlign: 'center',
   },
   hint: {

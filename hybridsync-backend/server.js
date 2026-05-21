@@ -81,13 +81,14 @@ app.get('/api/auth/slack/callback', async (req, res) => {
     const slackUserId = payload.sub;
     const name        = payload.name || payload['https://slack.com/user_name'] || slackUserId;
 
-    // Determine dashboard role
-    const hrIds = (process.env.HR_SLACK_IDS || '').split(',').map(s => s.trim()).filter(Boolean);
+    // Determine dashboard role — admins are DB-driven (set on Slack install);
+    // managers are derived from teams.manager_id.
+    const userRole = await db.getUserRole(slackUserId);
 
     let role, teamId, displayName;
 
-    if (hrIds.includes(slackUserId)) {
-      role        = 'hr';
+    if (userRole === 'admin') {
+      role        = 'admin';
       displayName = name;
     } else {
       // Check if this user is a manager of any team

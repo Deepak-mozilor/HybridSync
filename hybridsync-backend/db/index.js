@@ -404,6 +404,13 @@ async function deleteWorkspace(teamId) {
   if (error) throw new Error(`deleteWorkspace: ${error.message}`);
 }
 
+async function getAllWorkspaces() {
+  const { data, error } = await supabase
+    .from('workspaces').select('*');
+  if (error) throw new Error(`getAllWorkspaces: ${error.message}`);
+  return data || [];
+}
+
 async function setUserRole(userId, role) {
   // Ensure the row exists (display_name is NOT NULL), then set role.
   await ensureUser(userId);
@@ -449,6 +456,7 @@ module.exports = {
   _updateDependencies,
   upsertWorkspace,
   getWorkspace,
+  getAllWorkspaces,
   deleteWorkspace,
   setUserRole,
   getUserRole,

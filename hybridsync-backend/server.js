@@ -4,6 +4,8 @@
 const express      = require('express');
 const cors         = require('cors');
 const jwt          = require('jsonwebtoken');
+const { InstallProvider } = require('@slack/oauth');
+const { WebClient }       = require('@slack/web-api');
 const db           = require('./db');
 const { upcomingWorkDays } = require('./utils/dates');
 const { syncTeamsFromChannels } = require('./services/teamSync');
@@ -18,11 +20,71 @@ const JWT_SECRET   = process.env.JWT_SECRET   || 'hybridsync-secret';
 const BACKEND_URL  = process.env.BACKEND_URL  || 'http://localhost:3001';
 const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:5173';
 
-let slackClient = null;
-
 const app = express();
 app.use(cors());
 app.use(express.json());
+
+// ---------------------------------------------------------------------------
+// Slack OAuth distribution — /slack/install and /slack/oauth_redirect
+// ---------------------------------------------------------------------------
+// We host these on Express because Bolt's built-in install server runs on its
+// own port (default 3000) which Railway doesn't expose publicly. Same Bolt
+// `installationStore` (in app.js) is referenced via db helpers.
+
+const slackInstaller = process.env.SLACK_CLIENT_ID && process.env.SLACK_CLIENT_SECRET && process.env.SLACK_STATE_SECRET
+  ? new InstallProvider({
+      clientId:     process.env.SLACK_CLIENT_ID,
+      clientSecret: process.env.SLACK_CLIENT_SECRET,
+      stateSecret:  process.env.SLACK_STATE_SECRET,
+      installationStore: {
+        storeInstallation: (installation) => db.upsertWorkspace(installation),
+        fetchInstallation: async (q) => {
+          const ws = await db.getWorkspace(q.teamId);
+          if (!ws) throw new Error(`No installation for team ${q.teamId}`);
+          return ws.installation;
+        },
+        deleteInstallation: (q) => db.deleteWorkspace(q.teamId),
+      },
+    })
+  : null;
+
+if (slackInstaller) {
+  // GET /slack/install — generates the Slack OAuth consent URL and 302s
+  app.get('/slack/install', async (req, res) => {
+    await slackInstaller.handleInstallPath(req, res, {}, {
+      scopes: [
+        'channels:history', 'channels:read',
+        'chat:write',
+        'im:history', 'im:write',
+        'users:read', 'users:read.email',
+        'team:read',
+        'app_mentions:read',
+        'groups:history', 'groups:read',
+        'reactions:write',
+      ],
+    });
+  });
+
+  // GET /slack/oauth_redirect — Slack redirects here after consent
+  app.get('/slack/oauth_redirect', async (req, res) => {
+    await slackInstaller.handleCallback(req, res, {
+      success: async (installation, _options, _req, response) => {
+        // storeInstallation has already run. Promote installer to admin.
+        await db.setUserRole(installation.user.id, 'admin');
+        response.writeHead(302, { Location: `${FRONTEND_URL}?installed=true` });
+        response.end();
+      },
+      failure: async (error, _options, _req, response) => {
+        response.writeHead(302, {
+          Location: `${FRONTEND_URL}?install_error=${encodeURIComponent(error.message)}`,
+        });
+        response.end();
+      },
+    });
+  });
+
+  console.log('[OAuth] Slack install routes mounted at /slack/install + /slack/oauth_redirect');
+}
 
 // JWT auth middleware — verifies Authorization: Bearer <token>
 function requireAuth(req, res, next) {
@@ -333,7 +395,13 @@ app.post('/api/google/webhook', async (req, res) => {
     if (lastDm && Date.now() - lastDm < WFH_DM_COOLDOWN_MS) return;
     wfhDmCooldown.set(user.id, Date.now());
 
-    await slackClient.chat.postMessage({
+    const workspaces = await db.getAllWorkspaces();
+    if (!workspaces.length) {
+      console.warn('[Google Webhook] No workspace installed — cannot DM');
+      return;
+    }
+    const client = new WebClient(workspaces[0].bot_token);
+    await client.chat.postMessage({
       channel: user.id,
       text: `🔴 *Meeting load update:* You now have *${load.count} meetings* today (${load.totalMinutes} min total — ${load.onlineCount} online, ${load.offlineCount} offline). Most can be attended remotely — consider switching to *WFH 🏠*.`,
     });
@@ -345,30 +413,35 @@ app.post('/api/google/webhook', async (req, res) => {
 
 // POST /api/recalculate-deps — rebuild dependency graph from last 30 days of Slack interactions
 app.post('/api/recalculate-deps', requireAuth, async (req, res) => {
-  if (!slackClient) return res.status(503).json({ error: 'Slack client not initialised yet' });
   try {
+    const workspaces = await db.getAllWorkspaces();
+    if (!workspaces.length) return res.status(503).json({ error: 'No Slack workspace installed' });
+    const client = new WebClient(workspaces[0].bot_token);
     const { runWeeklyMapping } = require('./ai/batch');
-    await runWeeklyMapping(slackClient);
+    await runWeeklyMapping(client);
     res.json({ ok: true });
   } catch (e) {
+    console.error('[Recalc] Error:', e);
     res.status(500).json({ error: e.message });
   }
 });
 
 // POST /api/sync-teams — pull all channels the bot is in and create/update teams
 app.post('/api/sync-teams', requireAuth, async (req, res) => {
-  if (!slackClient) return res.status(503).json({ error: 'Slack client not initialised yet' });
   try {
-    const results = await syncTeamsFromChannels(slackClient);
+    const workspaces = await db.getAllWorkspaces();
+    if (!workspaces.length) return res.status(503).json({ error: 'No Slack workspace installed' });
+    const client = new WebClient(workspaces[0].bot_token);
+    const results = await syncTeamsFromChannels(client);
     res.json({ synced: results.length, results });
   } catch (e) {
+    console.error('[SyncTeams] Error:', e);
     res.status(500).json({ error: e.message });
   }
 });
 
 
-function start(port = 3001, client) {
-  slackClient = client;
+function start(port = 3001) {
   app.listen(port, () => console.log(`[API] REST server listening on http://localhost:${port}`));
 }
 

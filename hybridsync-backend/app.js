@@ -18,8 +18,6 @@ const batch             = require('./ai/batch');
 const apiServer         = require('./server');
 const { getUserEmail }  = require('./services/googleCalendar');
 
-const FRONTEND_URL = process.env.FRONTEND_URL || 'https://hybrid-sync.vercel.app';
-
 const app = new App({
   socketMode:   true,
   appToken:     process.env.SLACK_APP_TOKEN,
@@ -50,23 +48,9 @@ const app = new App({
       await db.deleteWorkspace(installQuery.teamId);
     },
   },
-  installerOptions: {
-    directInstall: true,
-    callbackOptions: {
-      success: async (installation, _options, _req, res) => {
-        // storeInstallation has already run. Promote installer to admin, then redirect.
-        await db.setUserRole(installation.user.id, 'admin');
-        res.writeHead(302, { Location: `${FRONTEND_URL}?installed=true` });
-        res.end();
-      },
-      failure: async (error, _options, _req, res) => {
-        res.writeHead(302, {
-          Location: `${FRONTEND_URL}?install_error=${encodeURIComponent(error.message)}`,
-        });
-        res.end();
-      },
-    },
-  },
+  // OAuth install routes (/slack/install, /slack/oauth_redirect) are served by
+  // the Express server in server.js — Bolt's built-in install HTTP server uses
+  // a separate port that Railway doesn't expose publicly.
 });
 
 // One-time migration for the legacy single-workspace install (HR_SLACK_IDS +
@@ -138,9 +122,9 @@ async function backfillGoogleEmails() {
   // Backfill Google emails for users who connected before email-saving was added
   backfillGoogleEmails().catch(e => console.error('[Backfill] Error:', e.message));
 
-  // Phase 3 — Start scheduled AI batch jobs (pass client for live Slack reads)
-  batch.start(app.client);
+  // Phase 3 — Start scheduled AI batch jobs (per-workspace clients built from DB)
+  batch.start();
 
   // Phase 4 — REST API for the React admin dashboard
-  apiServer.start(process.env.PORT || 3001, app.client);
+  apiServer.start(process.env.PORT || 3001);
 })();

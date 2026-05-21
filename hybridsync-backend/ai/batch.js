@@ -3,10 +3,19 @@
 // Works with Anthropic or Groq via the provider abstraction.
 
 const cron = require('node-cron');
+const { WebClient } = require('@slack/web-api');
 const db = require('../db');
 const { runAgentLoop, complete, getProvider } = require('./provider');
 const { getSharedMeetingCount, renewChannels } = require('../services/googleCalendar');
 const { syncAllUsersForToday } = require('../services/slackStatus');
+
+// Build a per-workspace WebClient from the stored bot token.
+// Returns null if no workspace is installed yet.
+async function getWorkspaceClient() {
+  const workspaces = await db.getAllWorkspaces();
+  if (!workspaces.length) return null;
+  return new WebClient(workspaces[0].bot_token);
+}
 
 // ---------------------------------------------------------------------------
 // Slack interaction fetcher — replaces the hardcoded simulation.
@@ -200,8 +209,12 @@ async function getSimulatedInteractions() {
 // Register cron jobs — slackClient passed in from app.js
 // ---------------------------------------------------------------------------
 
-function start(slackClient) {
-  cron.schedule('0 2 * * 0', () => runWeeklyMapping(slackClient).catch(e => console.error('[WeeklyMapping] Error:', e.message)));
+function start() {
+  cron.schedule('0 2 * * 0', async () => {
+    const client = await getWorkspaceClient();
+    if (!client) return console.warn('[WeeklyMapping] No workspace installed — skipping');
+    runWeeklyMapping(client).catch(e => console.error('[WeeklyMapping] Error:', e.message));
+  });
   // Renew Google Calendar webhook channels daily before they expire (max 7 days)
   cron.schedule('0 3 * * *', () => renewChannels().catch(e => console.error('[Google] Channel renewal error:', e.message)));
   // Daily Slack-status sweep — Mon-Fri 8 AM IST (= 02:30 UTC)

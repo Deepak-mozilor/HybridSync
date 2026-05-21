@@ -9,7 +9,7 @@
 
 const { createClient } = require('@supabase/supabase-js');
 const { STATUS, DEFAULT_WEEK, teams, seedUsers, seedDependencies } = require('../data/seed');
-const { dayLabel } = require('../utils/dates');
+const { dayLabel, todayKey } = require('../utils/dates');
 
 const supabase = createClient(
   process.env.SUPABASE_URL,
@@ -181,6 +181,20 @@ async function setStatus(userId, dateKey, status) {
   if (!Object.values(STATUS).includes(status)) {
     throw new Error(`Invalid status: ${status}`);
   }
+
+  const today = todayKey();
+  if (dateKey < today) {
+    throw new Error(`Cannot set status for past dates (${dateKey} is before today ${today})`);
+  }
+  if (status === STATUS.SICK) {
+    const maxSickDate = new Date(today);
+    maxSickDate.setDate(maxSickDate.getDate() + 7);
+    const maxKey = maxSickDate.toISOString().slice(0, 10);
+    if (dateKey > maxKey) {
+      throw new Error(`Sick status can only be set up to 7 days in advance (max ${maxKey})`);
+    }
+  }
+
   const { error } = await supabase
     .from('overrides')
     .upsert({ user_id: userId, date_key: dateKey, status }, { onConflict: 'user_id,date_key' });

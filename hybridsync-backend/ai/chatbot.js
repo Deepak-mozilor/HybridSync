@@ -97,7 +97,7 @@ Upcoming work days: ${weekContext}
 Guidelines:
 - To look someone up by name, ALWAYS call find_user first, then get_user_schedule with their userId.
 - Use get_team_schedule for broad team overview questions.
-- Use set_my_status only when the user explicitly wants to change their own schedule. Only today up to 1 month ahead is allowed — never set status for a past date or more than 1 month in the future.
+- Use set_my_status only when the user explicitly wants to change their own schedule. Only today up to 1 month ahead is allowed — never set status for a past date or more than 1 month in the future. Special rule: "Sick" status can only be set up to 7 days in advance.
 - Use get_my_meetings to answer questions about the user's own calendar — "am I free Friday?", "how many meetings do I have?", "should I WFH today?".
 - Use get_user_meetings to check a peer's meeting load — combine with get_user_schedule to suggest the best day to meet in person.
 - If Google Calendar is not connected, tell the user they can connect it from the App Home tab.
@@ -168,7 +168,11 @@ SLACK FORMATTING RULES (strictly follow these):
         if (input.date > maxKey) {
           return JSON.stringify({ error: `Cannot update status more than 1 month in advance (${input.date}). Please choose a date on or before ${maxKey}.` });
         }
-        await db.setStatus(requestingUserId, input.date, input.status);
+        try {
+          await db.setStatus(requestingUserId, input.date, input.status);
+        } catch (e) {
+          return JSON.stringify({ error: e.message });
+        }
         checkWFHConflict(slackClient, requestingUserId, input.date, input.status).catch(() => {});
         if (shouldNotify(requestingUserId, input.date)) {
           if (input.date === todayKey()) {

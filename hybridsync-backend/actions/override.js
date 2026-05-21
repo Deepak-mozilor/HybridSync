@@ -59,27 +59,33 @@ function register(app) {
 
   app.view('override_submit', async ({ ack, body, view, client, logger }) => {
     await ack();
-    try {
-      const userId  = body.user.id;
-      const today   = todayKey();
-      const updates = parseModalValues(view);
-      for (const [dateKey, status] of Object.entries(updates)) {
+    const userId  = body.user.id;
+    const updates = parseModalValues(view);
+    const rejected = [];
+    let applied = 0;
+
+    for (const [dateKey, status] of Object.entries(updates)) {
+      try {
         await db.setStatus(userId, dateKey, status);
         checkWFHConflict(client, userId, dateKey, status).catch(() => {});
         notifyDependents(client, userId, dateKey, status).catch(e =>
           logger.error('[Override] notifyDependents error:', e)
         );
+        applied++;
+      } catch (err) {
+        rejected.push(`• *${dateKey}* (${status}): ${err.message}`);
       }
-      await publishHome(client, userId);
-
-      await client.chat.postMessage({
-        channel: userId,
-        text: `✅ Schedule updated for ${Object.keys(updates).length} day(s). Open *HybridSync* app home to see changes.`,
-      });
-      console.log(`[Override] ${userId} updated ${Object.keys(updates).length} day(s)`);
-    } catch (err) {
-      logger.error('Error handling override submission:', err);
     }
+
+    await publishHome(client, userId);
+
+    const lines = [];
+    if (applied)         lines.push(`✅ Schedule updated for ${applied} day(s).`);
+    if (rejected.length) lines.push(`⚠️ ${rejected.length} update(s) rejected:`, ...rejected);
+    if (lines.length) {
+      await client.chat.postMessage({ channel: userId, text: lines.join('\n') });
+    }
+    console.log(`[Override] ${userId} applied=${applied} rejected=${rejected.length}`);
   });
 }
 

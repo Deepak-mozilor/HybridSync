@@ -112,32 +112,6 @@ app.get('/api/auth/slack/callback', async (req, res) => {
   }
 });
 
-// POST /api/auth/login
-app.post('/api/auth/login', async (req, res) => {
-  const { role, password, teamId } = req.body;
-
-  if (role === 'hr') {
-    if (password !== (process.env.HR_PASSWORD || 'hr@hybridsync')) {
-      return res.status(401).json({ error: 'Invalid password' });
-    }
-    const token = jwt.sign({ role: 'hr', name: 'HR Admin' }, JWT_SECRET, { expiresIn: '12h' });
-    return res.json({ token, role: 'hr', name: 'HR Admin' });
-  }
-
-  if (role === 'manager') {
-    if (password !== (process.env.MANAGER_PASSWORD || 'manager@hybridsync')) {
-      return res.status(401).json({ error: 'Invalid password' });
-    }
-    if (!teamId) return res.status(400).json({ error: 'teamId required for manager login' });
-    const team = await db.getTeam(teamId);
-    if (!team) return res.status(404).json({ error: 'Team not found' });
-    const token = jwt.sign({ role: 'manager', teamId, name: team.name }, JWT_SECRET, { expiresIn: '12h' });
-    return res.json({ token, role: 'manager', teamId, name: team.name });
-  }
-
-  return res.status(400).json({ error: 'role must be hr or manager' });
-});
-
 // GET /api/auth/teams — public: list of teams for the login page dropdown
 app.get('/api/auth/teams', async (req, res) => {
   const users   = await db.getAllUsers();

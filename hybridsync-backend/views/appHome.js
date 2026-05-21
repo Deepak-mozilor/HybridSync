@@ -64,7 +64,7 @@ function buildConnectOAuthUrl(userId) {
   if (!clientId) return null;
   const url = new URL('https://slack.com/oauth/v2/authorize');
   url.searchParams.set('client_id', clientId);
-  url.searchParams.set('user_scope', 'users.profile:write');
+  url.searchParams.set('user_scope', 'users.profile:write,users.profile:read');
   url.searchParams.set('redirect_uri', redirectUri);
   url.searchParams.set('state', userId);
   return url.toString();
@@ -286,26 +286,26 @@ async function buildHomeView(userId) {
     divider(),
 
     md('*🔗 Slack Status Sync*'),
-    isConnected
-      ? ctx('✅ *Connected* — your Slack profile status updates automatically when your HybridSync status changes.')
-      : {
-          type: 'section',
-          text: {
-            type: 'mrkdwn',
-            text: oauthUrl
+    {
+      type: 'section',
+      text: {
+        type: 'mrkdwn',
+        text: isConnected
+          ? '✅ *Connected* — your Slack profile status updates automatically when your HybridSync status changes.'
+          : (oauthUrl
               ? '🔌 *Not connected* — link your account so HybridSync can update your Slack status emoji automatically.'
-              : '_Slack status sync is not configured. Ask your admin to set `SLACK_CLIENT_ID`._',
-          },
-          ...(oauthUrl ? {
-            accessory: {
-              type:      'button',
-              text:      { type: 'plain_text', text: '🔗 Connect Slack Status', emoji: true },
-              style:     'primary',
-              url:       oauthUrl,
-              action_id: 'connect_slack_status',
-            },
-          } : {}),
+              : '_Slack status sync is not configured. Ask your admin to set `SLACK_CLIENT_ID`._'),
+      },
+      ...(oauthUrl ? {
+        accessory: {
+          type:      'button',
+          text:      { type: 'plain_text', text: isConnected ? '🔄 Reconnect' : '🔗 Connect Slack Status', emoji: true },
+          style:     isConnected ? undefined : 'primary',
+          url:       oauthUrl,
+          action_id: 'connect_slack_status',
         },
+      } : {}),
+    },
   ];
 
   return { type: 'home', blocks };

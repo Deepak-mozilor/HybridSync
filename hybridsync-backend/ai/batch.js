@@ -6,6 +6,7 @@ const cron = require('node-cron');
 const db = require('../db');
 const { runAgentLoop, complete, getProvider } = require('./provider');
 const { getSharedMeetingCount, renewChannels } = require('../services/googleCalendar');
+const { syncAllUsersForToday } = require('../services/slackStatus');
 
 // ---------------------------------------------------------------------------
 // Slack interaction fetcher — replaces the hardcoded simulation.
@@ -203,7 +204,9 @@ function start(slackClient) {
   cron.schedule('0 2 * * 0', () => runWeeklyMapping(slackClient).catch(e => console.error('[WeeklyMapping] Error:', e.message)));
   // Renew Google Calendar webhook channels daily before they expire (max 7 days)
   cron.schedule('0 3 * * *', () => renewChannels().catch(e => console.error('[Google] Channel renewal error:', e.message)));
-  console.log('[Batch] Scheduled: weekly mapping Sun 2 AM, Google channel renewal daily 3 AM.');
+  // Daily Slack-status sweep — Mon-Fri 8 AM IST (= 02:30 UTC)
+  cron.schedule('30 2 * * 1-5', () => syncAllUsersForToday().catch(e => console.error('[DailyStatusSync] Error:', e.message)));
+  console.log('[Batch] Scheduled: weekly mapping Sun 2 AM, Google channel renewal daily 3 AM, daily status sync Mon-Fri 8 AM IST.');
 }
 
-module.exports = { start, runWeeklyMapping, fetchSlackInteractions };
+module.exports = { start, runWeeklyMapping, fetchSlackInteractions, syncAllUsersForToday };

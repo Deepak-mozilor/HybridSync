@@ -7,7 +7,8 @@
     "start": "node app.js",
     "dev": "node --watch app.js",
     "test": "jest",
-    "run:weekly-mapping": "node -e \"require('dotenv').config(); require('./ai/batch').runWeeklyMapping()\""
+    "run:weekly-mapping": "node -e \"require('dotenv').config(); require('./ai/batch').runWeeklyMapping()\"",
+    "run:daily-status-sync": "node -e \"require('dotenv').config(); require('./services/slackStatus').syncAllUsersForToday()\""
   },
   "keywords": [],
   "author": "",

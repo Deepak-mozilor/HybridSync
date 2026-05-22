@@ -43,6 +43,16 @@ function isTransientApiError(e) {
   return status === 529 || status === 503 || status === 502 || status === 429 || type === 'overloaded_error';
 }
 
+// Multi-attempt schedule: 3 Haiku tries (longer backoff than before to ride
+// out 5–10s Anthropic spikes), then a single Sonnet fallback (different
+// model queue, often available when Haiku is overloaded).
+const CLASSIFIER_ATTEMPTS = [
+  { model: 'claude-haiku-4-5-20251001', delay: 0    },
+  { model: 'claude-haiku-4-5-20251001', delay: 1000 },
+  { model: 'claude-haiku-4-5-20251001', delay: 3000 },
+  { model: 'claude-sonnet-4-6',         delay: 1500 },
+];
+
 // Returns one of:
 //   { kind: 'skip' }                  — pre-filter didn't match, or no API key
 //   { kind: 'no_match' }              — classifier ran but decided this isn't a status update
@@ -52,25 +62,28 @@ async function detectStatusAI(text) {
   if (!STATUS_WORDS_RE.test(text)) return { kind: 'skip' };
   if (!_anthropic) return { kind: 'skip' };
 
-  const delays = [500, 1500]; // up to 3 attempts: 0, 500ms, 1500ms
   let lastErr = null;
 
-  for (let attempt = 0; attempt <= delays.length; attempt++) {
+  for (let i = 0; i < CLASSIFIER_ATTEMPTS.length; i++) {
+    const { model, delay } = CLASSIFIER_ATTEMPTS[i];
+    if (delay) await sleep(delay);
     try {
       const response = await _anthropic.messages.create({
-        model:      'claude-haiku-4-5-20251001',
+        model,
         max_tokens: 80,
         system: [{ type: 'text', text: DETECT_SYSTEM, cache_control: { type: 'ephemeral' } }],
         messages: [{ role: 'user', content: `TODAY: ${todayKey()}\nMessage: "${text}"` }],
       });
       const raw  = response.content.find(b => b.type === 'text')?.text || '{}';
       const json = JSON.parse(raw.match(/\{[\s\S]*\}/)?.[0] || '{}');
+      if (model !== CLASSIFIER_ATTEMPTS[0].model) {
+        console.log(`[Stream] classifier recovered via ${model} on attempt ${i + 1}`);
+      }
       if (!json.isUpdate || !json.status) return { kind: 'no_match' };
       return { kind: 'hit', status: json.status, dateKey: json.dateKey || todayKey() };
     } catch (e) {
       lastErr = e;
-      if (!isTransientApiError(e) || attempt === delays.length) break;
-      await sleep(delays[attempt]);
+      if (!isTransientApiError(e)) break;
     }
   }
   console.warn('[Stream] classifier failed after retries:', lastErr?.status, lastErr?.message);

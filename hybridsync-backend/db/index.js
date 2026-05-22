@@ -358,39 +358,6 @@ async function getUserTeams(userId) {
   return (data || []).map(r => r.team_id);
 }
 
-async function getTeamMembers(teamId) {
-  const { data, error } = await supabase
-    .from('team_members').select('user_id').eq('team_id', teamId);
-  if (error) throw new Error(`getTeamMembers: ${error.message}`);
-  return (data || []).map(r => r.user_id);
-}
-
-async function getTeammates(userId) {
-  const teamIds = await getUserTeams(userId);
-  if (!teamIds.length) return [];
-
-  const { data: members, error: mErr } = await supabase
-    .from('team_members').select('user_id').in('team_id', teamIds);
-  if (mErr) throw new Error(`getTeammates (members): ${mErr.message}`);
-
-  const peerIds = [...new Set((members || []).map(m => m.user_id))].filter(id => id !== userId);
-  if (!peerIds.length) return [];
-
-  const { data: users, error: uErr } = await supabase
-    .from('users').select('*').in('id', peerIds);
-  if (uErr) throw new Error(`getTeammates (users): ${uErr.message}`);
-
-  // Attach teamIds to each peer so callers see full membership
-  const { data: peerMemberships } = await supabase
-    .from('team_members').select('user_id, team_id').in('user_id', peerIds);
-  const peerTeamsById = {};
-  for (const m of peerMemberships || []) {
-    if (!peerTeamsById[m.user_id]) peerTeamsById[m.user_id] = [];
-    peerTeamsById[m.user_id].push(m.team_id);
-  }
-  return (users || []).map(u => toUser(u, peerTeamsById[u.id] || []));
-}
-
 async function isTeamManager(userId) {
   const { data, error } = await supabase
     .from('teams').select('id').eq('manager_id', userId).limit(1);
@@ -518,8 +485,6 @@ module.exports = {
   addUserToTeam,
   removeUserFromTeam,
   getUserTeams,
-  getTeamMembers,
-  getTeammates,
   isTeamManager,
   findUserByName,
   getDependencyGraph,

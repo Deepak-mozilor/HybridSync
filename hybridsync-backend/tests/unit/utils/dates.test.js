@@ -1,4 +1,4 @@
-const { todayKey, upcomingWorkDays, parseTargetDate, toKey } = require('../../../utils/dates');
+const { todayKey, upcomingWorkDays } = require('../../../utils/dates');
 
 describe('todayKey', () => {
   it('returns YYYY-MM-DD format', () => {
@@ -43,43 +43,3 @@ describe('upcomingWorkDays', () => {
   });
 });
 
-describe('parseTargetDate', () => {
-  it('returns today for "today"', () => {
-    expect(parseTargetDate('I am wfh today').dateKey).toBe(todayKey());
-  });
-
-  it('returns today for "tmr" — tomorrow is a work day after skipping weekends', () => {
-    const result = parseTargetDate('wfh tmr');
-    expect(result.dateKey > todayKey()).toBe(true);
-  });
-
-  it('returns a future Friday for "on friday"', () => {
-    const result = parseTargetDate('on friday');
-    const d = new Date(result.dateKey + 'T00:00:00');
-    expect(d.getDay()).toBe(5);
-    expect(result.dateKey >= todayKey()).toBe(true);
-  });
-
-  it('returns a future Monday for "on monday"', () => {
-    const result = parseTargetDate('on monday');
-    const d = new Date(result.dateKey + 'T00:00:00');
-    expect(d.getDay()).toBe(1);
-    expect(result.dateKey >= todayKey()).toBe(true);
-  });
-
-  it('falls back to today for unrecognised text', () => {
-    expect(parseTargetDate('just some random message').dateKey).toBe(todayKey());
-  });
-
-  it('does not throw on negation text', () => {
-    expect(() => parseTargetDate('not wfh today')).not.toThrow();
-    expect(() => parseTargetDate('won\'t be in office')).not.toThrow();
-  });
-
-  it('resolves "next week" to next Monday', () => {
-    const result = parseTargetDate('wfh next week');
-    const d = new Date(result.dateKey + 'T00:00:00');
-    expect(d.getDay()).toBe(1);
-    expect(result.dateKey > todayKey()).toBe(true);
-  });
-});

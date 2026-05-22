@@ -35,23 +35,46 @@ Rules:
 
 const _anthropic = process.env.ANTHROPIC_API_KEY ? new Anthropic() : null;
 
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+
+function isTransientApiError(e) {
+  const status = e?.status;
+  const type   = e?.error?.error?.type || e?.error?.type;
+  return status === 529 || status === 503 || status === 502 || status === 429 || type === 'overloaded_error';
+}
+
+// Returns one of:
+//   { kind: 'skip' }                  — pre-filter didn't match, or no API key
+//   { kind: 'no_match' }              — classifier ran but decided this isn't a status update
+//   { kind: 'unavailable', error }    — Anthropic API failed transiently after retries
+//   { kind: 'hit', status, dateKey }  — successful classification
 async function detectStatusAI(text) {
-  if (!STATUS_WORDS_RE.test(text)) return null;
-  if (!_anthropic) return null;
-  try {
-    const response = await _anthropic.messages.create({
-      model:      'claude-haiku-4-5-20251001', // cheap + fast — ideal for classification
-      max_tokens: 80,
-      system: [{ type: 'text', text: DETECT_SYSTEM, cache_control: { type: 'ephemeral' } }],
-      messages: [{ role: 'user', content: `TODAY: ${todayKey()}\nMessage: "${text}"` }],
-    });
-    const raw  = response.content.find(b => b.type === 'text')?.text || '{}';
-    const json = JSON.parse(raw.match(/\{[\s\S]*\}/)?.[0] || '{}');
-    if (!json.isUpdate || !json.status) return null;
-    return { status: json.status, dateKey: json.dateKey || todayKey() };
-  } catch {
-    return null;
+  if (!STATUS_WORDS_RE.test(text)) return { kind: 'skip' };
+  if (!_anthropic) return { kind: 'skip' };
+
+  const delays = [500, 1500]; // up to 3 attempts: 0, 500ms, 1500ms
+  let lastErr = null;
+
+  for (let attempt = 0; attempt <= delays.length; attempt++) {
+    try {
+      const response = await _anthropic.messages.create({
+        model:      'claude-haiku-4-5-20251001',
+        max_tokens: 80,
+        system: [{ type: 'text', text: DETECT_SYSTEM, cache_control: { type: 'ephemeral' } }],
+        messages: [{ role: 'user', content: `TODAY: ${todayKey()}\nMessage: "${text}"` }],
+      });
+      const raw  = response.content.find(b => b.type === 'text')?.text || '{}';
+      const json = JSON.parse(raw.match(/\{[\s\S]*\}/)?.[0] || '{}');
+      if (!json.isUpdate || !json.status) return { kind: 'no_match' };
+      return { kind: 'hit', status: json.status, dateKey: json.dateKey || todayKey() };
+    } catch (e) {
+      lastErr = e;
+      if (!isTransientApiError(e) || attempt === delays.length) break;
+      await sleep(delays[attempt]);
+    }
   }
+  console.warn('[Stream] classifier failed after retries:', lastErr?.status, lastErr?.message);
+  return { kind: 'unavailable', error: lastErr };
 }
 
 const STATUS_EMOJI_MAP = { WFH: 'house', Office: 'office', Sick: 'face_with_thermometer', Leave: 'palm_tree' };
@@ -74,9 +97,21 @@ function register(app) {
     if (message.subtype || message.bot_id) return;
     if (message.channel_type === 'im') return; // DMs handled by chatbot listener
 
-    const text = message.text || '';
-    const hit  = await detectStatusAI(text);
-    if (!hit) return;
+    const text   = message.text || '';
+    const result = await detectStatusAI(text);
+    if (result.kind === 'skip' || result.kind === 'no_match') return;
+
+    if (result.kind === 'unavailable') {
+      try {
+        await say({
+          text: '⚠️ Status classifier is temporarily unavailable. Open the HybridSync app home and use *✏️ Edit Schedule* to set your status manually.',
+          thread_ts: message.ts,
+        });
+      } catch {}
+      return;
+    }
+
+    const hit = result; // { kind: 'hit', status, dateKey }
 
     try {
       const displayName = await resolveDisplayName(client, message.user);

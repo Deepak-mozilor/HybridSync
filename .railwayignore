@@ -1,0 +1,11 @@
+hybridsync-frontend/
+node_modules/
+*.env.local
+.env
+*.log
+.DS_Store
+.vscode/
+.idea/
+*.html
+*.md
+tests/

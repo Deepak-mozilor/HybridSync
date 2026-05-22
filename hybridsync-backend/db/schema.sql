@@ -59,3 +59,4 @@ CREATE TABLE IF NOT EXISTS workspaces (
   installation      JSONB NOT NULL,
   installed_at      TIMESTAMPTZ DEFAULT NOW()
 );
+

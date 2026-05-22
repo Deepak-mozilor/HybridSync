@@ -37,6 +37,7 @@ export default function SquadView({ focusTeam }) {
   }, [load]);
 
   if (error) return <div style={{ color: '#ef4444', padding: 20 }}>{error}</div>;
+  // Note: error/success accent colors stay constant in both themes for legibility.
 
   const inTeam = (user, teamId) =>
     (user.teamIds && user.teamIds.includes(teamId)) || user.teamId === teamId;
@@ -52,9 +53,9 @@ export default function SquadView({ focusTeam }) {
         <button onClick={() => load(true)} disabled={refreshing} style={refreshBtn}>
           {refreshing ? 'Refreshing…' : '↻ Refresh'}
         </button>
-        {lastSync && <span style={{ fontSize: 11, color: '#9ca3af' }}>Updated {lastSync.toLocaleTimeString()}</span>}
+        {lastSync && <span style={{ fontSize: 11, color: 'var(--text-faint)' }}>Updated {lastSync.toLocaleTimeString()}</span>}
       </div>
-      <p style={{ color: '#6b7280', marginBottom: 20 }}>
+      <p style={{ color: 'var(--text-muted)', marginBottom: 20 }}>
         Filtered dependency graph and schedules for your team. Set Anchor Days below to require office attendance.
       </p>
 
@@ -66,9 +67,9 @@ export default function SquadView({ focusTeam }) {
               onClick={() => setActiveTeam(t.id)}
               style={{
                 padding: '8px 20px', borderRadius: 20, border: '2px solid',
-                borderColor: activeTeam === t.id ? '#6366f1' : '#e5e7eb',
-                background:  activeTeam === t.id ? '#eef2ff' : '#fff',
-                color:       activeTeam === t.id ? '#4f46e5' : '#374151',
+                borderColor: activeTeam === t.id ? 'var(--accent)' : 'var(--border)',
+                background:  activeTeam === t.id ? 'var(--bg-accent)' : 'var(--bg-surface)',
+                color:       activeTeam === t.id ? 'var(--accent-strong)' : 'var(--text-primary)',
                 fontWeight:  activeTeam === t.id ? 700 : 400,
                 cursor: 'pointer', fontSize: 14,
               }}
@@ -85,7 +86,7 @@ export default function SquadView({ focusTeam }) {
       <ScheduleGrid rows={filteredSchedule?.rows} dates={schedule?.dates} />
 
       <h3 style={{ ...h2Style, fontSize: 17, marginTop: 32 }}>Anchor Days</h3>
-      <p style={{ color: '#6b7280', marginBottom: 14, fontSize: 13 }}>
+      <p style={{ color: 'var(--text-muted)', marginBottom: 14, fontSize: 13 }}>
         Toggle which days are mandated office days. Changes save instantly and appear in the Slack App Home.
       </p>
       <AnchorEditor teams={teams.filter(t => t.id === activeTeam)} onSaved={load} />
@@ -93,8 +94,8 @@ export default function SquadView({ focusTeam }) {
   );
 }
 
-const h2Style  = { fontSize: 20, fontWeight: 700, marginBottom: 0, marginTop: 0 };
+const h2Style  = { fontSize: 20, fontWeight: 700, marginBottom: 0, marginTop: 0, color: 'var(--text-primary)' };
 const refreshBtn = {
   fontSize: 12, padding: '4px 12px', borderRadius: 6,
-  border: '1px solid #e5e7eb', background: '#fff', cursor: 'pointer', color: '#4f46e5',
+  border: '1px solid var(--border)', background: 'var(--bg-surface)', cursor: 'pointer', color: 'var(--accent-strong)',
 };

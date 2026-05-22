@@ -1,8 +1,14 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import GodView    from './views/GodView';
 import SquadView  from './views/SquadView';
 import LoginPage  from './views/LoginPage';
 import { syncTeams, recalculateDeps } from './api';
+
+function loadTheme() {
+  const stored = localStorage.getItem('hs_theme');
+  if (stored === 'dark' || stored === 'light') return stored;
+  return window.matchMedia?.('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+}
 
 const TABS = [
   { id: 'god',   label: 'Admin View',         icon: '🏢', roles: ['admin'] },
@@ -47,6 +53,12 @@ export default function App() {
   const [syncMsg,      setSyncMsg]      = useState(null);
   const [recalculating, setRecalculating] = useState(false);
   const [recalcMsg,    setRecalcMsg]    = useState(null);
+  const [theme,        setTheme]        = useState(loadTheme);
+
+  useEffect(() => {
+    document.documentElement.dataset.theme = theme;
+    localStorage.setItem('hs_theme', theme);
+  }, [theme]);
 
   function handleLogin(authData) {
     setAuth(authData);
@@ -96,10 +108,10 @@ export default function App() {
   }
 
   return (
-    <div style={{ fontFamily: 'system-ui, sans-serif', minHeight: '100vh', background: '#f8fafc' }}>
-      <header style={{ background: '#fff', borderBottom: '1px solid #e5e7eb', padding: '0 32px', display: 'flex', alignItems: 'center', gap: 24, height: 58 }}>
-        <span style={{ fontWeight: 800, fontSize: 18, color: '#1e293b', letterSpacing: -0.5 }}>
-          HybridSync <span style={{ color: '#6366f1' }}>Admin</span>
+    <div style={{ fontFamily: 'system-ui, sans-serif', minHeight: '100vh', background: 'var(--bg-app)' }}>
+      <header style={{ background: 'var(--bg-surface)', borderBottom: '1px solid var(--border)', padding: '0 32px', display: 'flex', alignItems: 'center', gap: 24, height: 58 }}>
+        <span style={{ fontWeight: 800, fontSize: 18, color: 'var(--text-primary)', letterSpacing: -0.5 }}>
+          HybridSync <span style={{ color: 'var(--accent)' }}>Admin</span>
         </span>
         <nav style={{ display: 'flex', gap: 4, marginLeft: 16 }}>
           {TABS.filter(t => t.roles.includes(auth.role)).map(t => (
@@ -108,8 +120,8 @@ export default function App() {
               onClick={() => setTab(t.id)}
               style={{
                 padding: '6px 18px', borderRadius: 8, border: 'none',
-                background: tab === t.id ? '#eef2ff' : 'transparent',
-                color:      tab === t.id ? '#4f46e5' : '#6b7280',
+                background: tab === t.id ? 'var(--bg-accent)' : 'transparent',
+                color:      tab === t.id ? 'var(--accent-strong)' : 'var(--text-muted)',
                 fontWeight: tab === t.id ? 700 : 400,
                 cursor: 'pointer', fontSize: 14, transition: 'all 0.15s',
               }}
@@ -121,6 +133,17 @@ export default function App() {
         <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 10 }}>
           {syncMsg   && <span style={{ fontSize: 12, color: '#22c55e' }}>{syncMsg}</span>}
           {recalcMsg && <span style={{ fontSize: 12, color: '#22c55e' }}>{recalcMsg}</span>}
+          <button
+            onClick={() => setTheme(t => t === 'dark' ? 'light' : 'dark')}
+            title={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
+            style={{
+              fontSize: 14, padding: '4px 10px', borderRadius: 6, cursor: 'pointer',
+              border: '1.5px solid var(--border)', background: 'var(--bg-surface)',
+              color: 'var(--text-primary)', lineHeight: 1,
+            }}
+          >
+            {theme === 'dark' ? '☀️' : '🌙'}
+          </button>
           {auth.role === 'admin' && (
             <>
               <button
@@ -147,14 +170,14 @@ export default function App() {
               </button>
             </>
           )}
-          <span style={{ fontSize: 12, color: '#6b7280', fontWeight: 500 }}>
+          <span style={{ fontSize: 12, color: 'var(--text-muted)', fontWeight: 500 }}>
             {auth.role === 'admin' ? '🏢' : '👥'} {auth.name}
           </span>
           <button
             onClick={handleLogout}
             style={{
               fontSize: 12, padding: '5px 12px', borderRadius: 6, cursor: 'pointer',
-              border: '1.5px solid #e5e7eb', background: '#fff', color: '#6b7280',
+              border: '1.5px solid var(--border)', background: 'var(--bg-surface)', color: 'var(--text-muted)',
             }}
           >
             Sign out

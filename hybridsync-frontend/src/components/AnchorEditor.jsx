@@ -21,13 +21,13 @@ export default function AnchorEditor({ teams, onSaved }) {
     onSaved?.();
   }
 
-  if (!localTeams?.length) return <p style={{ color: '#6b7280' }}>No teams found.</p>;
+  if (!localTeams?.length) return <p style={{ color: 'var(--text-muted)' }}>No teams found.</p>;
 
   return (
     <div style={{ display: 'flex', gap: 20, flexWrap: 'wrap' }}>
       {localTeams.map(team => (
-        <div key={team.id} style={{ background: '#f9fafb', border: '1px solid #e5e7eb', borderRadius: 10, padding: '16px 20px', minWidth: 220 }}>
-          <div style={{ fontWeight: 700, marginBottom: 12 }}>{team.name}</div>
+        <div key={team.id} style={{ background: 'var(--bg-muted)', border: '1px solid var(--border)', borderRadius: 10, padding: '16px 20px', minWidth: 220 }}>
+          <div style={{ fontWeight: 700, marginBottom: 12, color: 'var(--text-primary)' }}>{team.name}</div>
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
             {DAYS.map(day => {
               const active = (team.anchorDays || []).includes(day);
@@ -40,9 +40,9 @@ export default function AnchorEditor({ teams, onSaved }) {
                     padding:      '6px 14px',
                     borderRadius: 8,
                     border:       '2px solid',
-                    borderColor:  active ? '#6366f1' : '#d1d5db',
-                    background:   active ? '#eef2ff' : '#fff',
-                    color:        active ? '#4f46e5' : '#6b7280',
+                    borderColor:  active ? 'var(--accent)' : 'var(--border-strong)',
+                    background:   active ? 'var(--bg-accent)' : 'var(--bg-surface)',
+                    color:        active ? 'var(--accent-strong)' : 'var(--text-muted)',
                     fontWeight:   active ? 700 : 400,
                     cursor:       'pointer',
                     fontSize:     13,
@@ -54,7 +54,7 @@ export default function AnchorEditor({ teams, onSaved }) {
               );
             })}
           </div>
-          {saving === team.id && <div style={{ marginTop: 8, fontSize: 12, color: '#6366f1' }}>Saving…</div>}
+          {saving === team.id && <div style={{ marginTop: 8, fontSize: 12, color: 'var(--accent)' }}>Saving…</div>}
         </div>
       ))}
     </div>

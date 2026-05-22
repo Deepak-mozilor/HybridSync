@@ -1,11 +1,47 @@
 *, *::before, *::after { box-sizing: border-box; }
 
+:root {
+  /* Light theme (default) */
+  --bg-app:        #f8fafc;
+  --bg-surface:    #ffffff;
+  --bg-elevated:   #f3f4f6;
+  --bg-muted:      #f9fafb;
+  --bg-accent:     #eef2ff;
+  --text-primary:  #1e293b;
+  --text-muted:    #6b7280;
+  --text-faint:    #9ca3af;
+  --border:        #e5e7eb;
+  --border-strong: #d1d5db;
+  --accent:        #6366f1;
+  --accent-strong: #4f46e5;
+  --shadow:        0 4px 16px rgba(0,0,0,0.10);
+  color-scheme: light;
+}
+
+[data-theme="dark"] {
+  --bg-app:        #0f172a;
+  --bg-surface:    #1e293b;
+  --bg-elevated:   #334155;
+  --bg-muted:      #1e293b;
+  --bg-accent:     #312e81;
+  --text-primary:  #f1f5f9;
+  --text-muted:    #94a3b8;
+  --text-faint:    #64748b;
+  --border:        #334155;
+  --border-strong: #475569;
+  --accent:        #818cf8;
+  --accent-strong: #a5b4fc;
+  --shadow:        0 4px 20px rgba(0,0,0,0.45);
+  color-scheme: dark;
+}
+
 body {
   margin: 0;
   font-family: system-ui, 'Segoe UI', Roboto, sans-serif;
-  background: #f8fafc;
-  color: #1e293b;
+  background: var(--bg-app);
+  color: var(--text-primary);
   -webkit-font-smoothing: antialiased;
+  transition: background-color 0.2s, color 0.2s;
 }
 
 #root {
@@ -18,4 +54,24 @@ h1, h2, h3 {
 
 button {
   font-family: inherit;
+}
+
+/* React Flow surfaces — blend with the page in both themes */
+[data-theme="dark"] .react-flow {
+  background: var(--bg-app);
+}
+[data-theme="dark"] .react-flow__controls button {
+  background: var(--bg-surface);
+  border-color: var(--border);
+  color: var(--text-primary);
+}
+[data-theme="dark"] .react-flow__controls button:hover {
+  background: var(--bg-elevated);
+}
+[data-theme="dark"] .react-flow__minimap {
+  background: var(--bg-surface);
+}
+[data-theme="dark"] .react-flow__attribution {
+  background: var(--bg-surface);
+  color: var(--text-muted);
 }

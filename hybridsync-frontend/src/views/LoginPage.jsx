@@ -45,24 +45,25 @@ export default function LoginPage({ onLogin, authError }) {
 
 const styles = {
   page: {
-    minHeight: '100vh', background: '#f1f5f9',
+    minHeight: '100vh', background: 'var(--bg-app)',
     display: 'flex', alignItems: 'center', justifyContent: 'center',
     fontFamily: 'system-ui, sans-serif',
   },
   card: {
-    background: '#fff', borderRadius: 16, padding: '40px 36px',
-    width: 400, boxShadow: '0 8px 32px rgba(0,0,0,0.10)',
+    background: 'var(--bg-surface)', borderRadius: 16, padding: '40px 36px',
+    width: 400, boxShadow: 'var(--shadow)',
     display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 0,
+    border: '1px solid var(--border)',
   },
   brand: {
     display: 'flex', flexDirection: 'column', alignItems: 'center',
     gap: 4, marginBottom: 20,
   },
   logo:      { fontSize: 48, lineHeight: 1, marginBottom: 6 },
-  brandText: { fontSize: 26, fontWeight: 800, color: '#1e293b', letterSpacing: -0.5 },
-  brandSub:  { fontSize: 12, color: '#6366f1', fontWeight: 600, letterSpacing: 1, textTransform: 'uppercase' },
+  brandText: { fontSize: 26, fontWeight: 800, color: 'var(--text-primary)', letterSpacing: -0.5 },
+  brandSub:  { fontSize: 12, color: 'var(--accent)', fontWeight: 600, letterSpacing: 1, textTransform: 'uppercase' },
   desc: {
-    fontSize: 13, color: '#6b7280', textAlign: 'center',
+    fontSize: 13, color: 'var(--text-muted)', textAlign: 'center',
     lineHeight: 1.6, marginBottom: 24,
   },
   slackBtn: {
@@ -77,10 +78,10 @@ const styles = {
     marginBottom: 16, textAlign: 'center',
   },
   installLink: {
-    fontSize: 13, color: '#4f46e5', textDecoration: 'none', fontWeight: 600,
+    fontSize: 13, color: 'var(--accent-strong)', textDecoration: 'none', fontWeight: 600,
     marginBottom: 16, textAlign: 'center',
   },
   hint: {
-    fontSize: 11, color: '#9ca3af', textAlign: 'center', margin: 0,
+    fontSize: 11, color: 'var(--text-faint)', textAlign: 'center', margin: 0,
   },
 };

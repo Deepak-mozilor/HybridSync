@@ -117,6 +117,18 @@ function decorateUser(u, map) {
   return { ...u, teamIds, teamNames, teamName: map[u.teamId] || u.teamId };
 }
 
+// Filter a list of users to those visible to the caller. Admin sees all,
+// manager sees only users in any team they manage.
+function scopeUsersForAuth(users, auth) {
+  if (auth.role === 'admin') return users;
+  const allowed = new Set(auth.teamIds || []);
+  return users.filter(u => {
+    if (u.teamId && allowed.has(u.teamId)) return true;
+    if (u.teamIds && u.teamIds.some(id => allowed.has(id))) return true;
+    return false;
+  });
+}
+
 // GET /api/auth/slack — initiate Sign in with Slack (OpenID Connect)
 app.get('/api/auth/slack', (req, res) => {
   if (!process.env.SLACK_CLIENT_ID) return res.status(503).send('Slack OAuth not configured');
@@ -155,30 +167,28 @@ app.get('/api/auth/slack/callback', async (req, res) => {
     const name        = payload.name || payload['https://slack.com/user_name'] || slackUserId;
 
     // Determine dashboard role — admins are DB-driven (set on Slack install);
-    // managers are derived from teams.manager_id.
+    // managers are derived from teams.manager_id (can manage multiple teams).
     const userRole = await db.getUserRole(slackUserId);
 
-    let role, teamId, displayName;
+    let role, teamIds = [], displayName;
 
     if (userRole === 'admin') {
       role        = 'admin';
       displayName = name;
     } else {
-      // Check if this user is a manager of any team
-      const teams       = await db.getAllTeams();
-      const managedTeam = teams.find(t => t.managerId === slackUserId);
-      if (managedTeam) {
+      const managed = await db.getTeamsManagedBy(slackUserId);
+      if (managed.length) {
         role        = 'manager';
-        teamId      = managedTeam.id;
-        displayName = managedTeam.name;
+        teamIds     = managed.map(t => t.id);
+        displayName = name;
       } else {
         return res.redirect(`${FRONTEND_URL}?auth_error=unauthorized`);
       }
     }
 
-    const token = jwt.sign({ role, teamId, name: displayName }, JWT_SECRET, { expiresIn: '12h' });
+    const token  = jwt.sign({ role, teamIds, name: displayName }, JWT_SECRET, { expiresIn: '12h' });
     const params = new URLSearchParams({ token, role, name: displayName });
-    if (teamId) params.set('teamId', teamId);
+    if (teamIds[0]) params.set('teamId', teamIds[0]); // first team for default focus
     res.redirect(`${FRONTEND_URL}?${params}`);
   } catch (e) {
     console.error('[SlackAuth] Callback error:', e.message);
@@ -198,27 +208,31 @@ app.get('/api/auth/teams', async (req, res) => {
   res.json(teams.map(t => ({ id: t.id, name: t.name })));
 });
 
-// GET /api/users — all users with team info (teamIds[] + teamNames[])
+// GET /api/users — users visible to the caller (admin: all, manager: own teams)
 app.get('/api/users', requireAuth, async (req, res) => {
-  const users = await db.getAllUsers();
-  const map   = await teamNameMap(users);
-  res.json(users.map(u => decorateUser(u, map)));
+  const allUsers = await db.getAllUsers();
+  const scoped   = scopeUsersForAuth(allUsers, req.auth);
+  const map      = await teamNameMap(scoped);
+  res.json(scoped.map(u => decorateUser(u, map)));
 });
 
-// GET /api/graph — full company dependency graph as { nodes, edges }
-// Suitable for direct consumption by React Flow
+// GET /api/graph — dependency graph as { nodes, edges }, scoped to caller.
+// Admin: full company. Manager: only users in any team they manage, with
+// edges restricted to those between two scoped users.
 app.get('/api/graph', requireAuth, async (req, res) => {
-  const users = await db.getAllUsers();
+  const allUsers = await db.getAllUsers();
+  const scoped   = scopeUsersForAuth(allUsers, req.auth);
+  const allowed  = new Set(scoped.map(u => u.id));
 
-  const map   = await teamNameMap(users);
-  const nodes = users.map(u => {
+  const map   = await teamNameMap(scoped);
+  const nodes = scoped.map(u => {
     const teamIds   = u.teamIds && u.teamIds.length ? u.teamIds : (u.teamId ? [u.teamId] : []);
     const teamNames = teamIds.map(id => map[id] || id);
     return {
       id: u.id,
       data: {
         label:    u.displayName,
-        team:     u.teamId,                          // primary (legacy field)
+        team:     u.teamId,
         teamName: map[u.teamId] || u.teamId,
         teamIds,
         teamNames,
@@ -230,11 +244,12 @@ app.get('/api/graph', requireAuth, async (req, res) => {
 
   const edges = [];
   const seen  = new Set();
-  for (const u of users) {
+  for (const u of scoped) {
     const deps = await db.getDependencyGraph(u.id);
     for (const { peerId, score } of deps) {
+      if (!allowed.has(peerId)) continue; // hide cross-team peers for managers
       const key = [u.id, peerId].sort().join('--');
-      if (seen.has(key)) continue; // deduplicate symmetric pairs
+      if (seen.has(key)) continue;
       seen.add(key);
       edges.push({
         id:     `${u.id}-${peerId}`,
@@ -256,16 +271,16 @@ app.get('/api/graph/:userId', requireAuth, async (req, res) => {
   res.json(edges);
 });
 
-// GET /api/schedule/week — all users' statuses for the current week
-// Returns { dates: [...], rows: [{ user, schedule: [{dateKey, day, status}] }] }
+// GET /api/schedule/week — visible users' statuses for the current week
 app.get('/api/schedule/week', requireAuth, async (req, res) => {
-  const users    = await db.getAllUsers();
+  const allUsers = await db.getAllUsers();
+  const scoped   = scopeUsersForAuth(allUsers, req.auth);
   const dates    = upcomingWorkDays(5);
   const dateKeys = dates.map(d => d.dateKey);
 
-  const map  = await teamNameMap(users);
+  const map  = await teamNameMap(scoped);
   const rows = await Promise.all(
-    users.map(async u => ({
+    scoped.map(async u => ({
       user:     decorateUser(u, map),
       schedule: await db.getScheduleForDates(u.id, dateKeys),
     }))
@@ -274,8 +289,14 @@ app.get('/api/schedule/week', requireAuth, async (req, res) => {
   res.json({ dates, rows });
 });
 
-// GET /api/teams — all teams that have any membership (primary or multi-team)
+// GET /api/teams — teams visible to caller. Admin: all with any member.
+// Manager: only the team(s) they manage.
 app.get('/api/teams', requireAuth, async (req, res) => {
+  if (req.auth.role === 'manager') {
+    const ids   = req.auth.teamIds || [];
+    const teams = (await Promise.all(ids.map(id => db.getTeam(id)))).filter(Boolean);
+    return res.json(teams);
+  }
   const users   = await db.getAllUsers();
   const teamIds = new Set();
   for (const u of users) {

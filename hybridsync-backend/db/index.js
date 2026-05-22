@@ -311,6 +311,13 @@ async function getAllTeams() {
   return (data || []).map(toTeam);
 }
 
+async function getTeamsManagedBy(userId) {
+  const { data, error } = await supabase
+    .from('teams').select('*').eq('manager_id', userId);
+  if (error) throw new Error(`getTeamsManagedBy: ${error.message}`);
+  return (data || []).map(toTeam);
+}
+
 async function deleteTeam(teamId) {
   // Cascade: clear all memberships, clear any users whose primary team pointed here,
   // then remove the team row itself.
@@ -489,6 +496,7 @@ module.exports = {
   getAllGoogleConnectedUsers,
   getTeam,
   getAllTeams,
+  getTeamsManagedBy,
   upsertTeam,
   deleteTeam,
   updateUserTeam,

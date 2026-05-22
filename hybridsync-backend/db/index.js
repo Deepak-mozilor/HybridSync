@@ -311,6 +311,15 @@ async function getAllTeams() {
   return (data || []).map(toTeam);
 }
 
+async function deleteTeam(teamId) {
+  // Cascade: clear all memberships, clear any users whose primary team pointed here,
+  // then remove the team row itself.
+  await supabase.from('team_members').delete().eq('team_id', teamId);
+  await supabase.from('users').update({ team_id: null }).eq('team_id', teamId);
+  const { error } = await supabase.from('teams').delete().eq('id', teamId);
+  if (error) throw new Error(`deleteTeam: ${error.message}`);
+}
+
 async function upsertTeam(teamData) {
   const row = {
     id:          teamData.id,
@@ -481,6 +490,7 @@ module.exports = {
   getTeam,
   getAllTeams,
   upsertTeam,
+  deleteTeam,
   updateUserTeam,
   addUserToTeam,
   removeUserFromTeam,

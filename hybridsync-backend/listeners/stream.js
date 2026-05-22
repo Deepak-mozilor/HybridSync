@@ -117,6 +117,20 @@ function register(app) {
     }
   });
 
+  // The bot itself was removed from a channel — delete the team and its memberships.
+  // `channel_left` fires for public channels, `group_left` for private ones.
+  const onBotLeft = async ({ event, logger }) => {
+    try {
+      const team = await db.getTeam(event.channel);
+      await db.deleteTeam(event.channel);
+      console.log(`[Stream] Bot removed from #${team?.name || event.channel} — team deleted`);
+    } catch (err) {
+      logger.error('[Stream] team delete on bot-leave failed:', err);
+    }
+  };
+  app.event('channel_left', onBotLeft);
+  app.event('group_left',   onBotLeft);
+
   app.message(async ({ message, say, client, logger }) => {
     if (message.subtype || message.bot_id) return;
     if (message.channel_type === 'im') return; // DMs handled by chatbot listener

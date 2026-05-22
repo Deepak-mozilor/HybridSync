@@ -7,6 +7,19 @@
 const db = require('../db');
 
 async function syncTeamsFromChannels(slackClient) {
+  // One bulk users.list at the top — reused across every channel iteration
+  // instead of an N-call users.info loop. Filter out bots/deleted/Slackbot.
+  const nameByUserId = {};
+  let cursor;
+  do {
+    const resp = await slackClient.users.list({ limit: 1000, ...(cursor ? { cursor } : {}) });
+    for (const m of resp.members || []) {
+      if (m.deleted || m.is_bot || m.id === 'USLACKBOT') continue;
+      nameByUserId[m.id] = m.profile?.real_name || m.profile?.display_name || m.name || m.id;
+    }
+    cursor = resp.response_metadata?.next_cursor;
+  } while (cursor);
+
   const listResp = await slackClient.conversations.list({
     types:            'public_channel',
     exclude_archived: true,
@@ -16,7 +29,7 @@ async function syncTeamsFromChannels(slackClient) {
   const results = [];
   const memberChannels = listResp.channels.filter(c => c.is_member);
 
-  // Build authoritative {userId -> Set<teamId>} from Slack so we can reconcile stale rows.
+  // Authoritative {userId -> Set<teamId>} from Slack so we can reconcile stale rows.
   const observed = {};
 
   for (const ch of memberChannels) {
@@ -35,8 +48,9 @@ async function syncTeamsFromChannels(slackClient) {
     try {
       const membersResp = await slackClient.conversations.members({ channel: ch.id, limit: 200 });
       for (const userId of membersResp.members) {
-        const user = await db.getUser(userId);
-        if (!user) continue;
+        const displayName = nameByUserId[userId];
+        if (!displayName) continue; // bot, deleted, or not a workspace human
+        const user = await db.ensureUser(userId, { displayName });
         await db.addUserToTeam(userId, ch.id);
         if (!user.teamId) await db.updateUserTeam(userId, ch.id); // set primary if unset
         if (!observed[userId]) observed[userId] = new Set();
@@ -51,9 +65,19 @@ async function syncTeamsFromChannels(slackClient) {
     results.push({ channel: ch.name, channelId: ch.id, members: memberCount });
   }
 
-  // Reconcile: drop team_members rows for channels the user is no longer in
-  // (only among channels we just inspected — leaves untouched channels alone).
+  // Catch-up cleanup: any team in DB the bot is no longer a member of → delete.
+  // Covers cases where the bot was kicked while offline and we missed the live event.
   const seenChannels = new Set(memberChannels.map(c => c.id));
+  const dbTeams = await db.getAllTeams();
+  for (const t of dbTeams) {
+    if (!seenChannels.has(t.id)) {
+      await db.deleteTeam(t.id);
+      console.log(`[TeamSync] removed orphan team #${t.name} (${t.id})`);
+    }
+  }
+
+  // Reconcile per-user memberships: drop rows for channels the user is no longer in
+  // (only among channels we just inspected).
   for (const [userId, currentSet] of Object.entries(observed)) {
     const stored = await db.getUserTeams(userId);
     for (const teamId of stored) {

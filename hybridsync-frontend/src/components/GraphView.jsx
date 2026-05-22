@@ -40,9 +40,9 @@ export default function GraphView({ graphData, filterTeam }) {
       const inTeam = n =>
         (n.data.teamIds && n.data.teamIds.includes(filterTeam)) || n.data.team === filterTeam;
       const teamIds = new Set(filteredNodes.filter(inTeam).map(n => n.id));
-      filteredEdges = filteredEdges.filter(e => teamIds.has(e.source) || teamIds.has(e.target));
-      const reachable = new Set([...filteredEdges.flatMap(e => [e.source, e.target])]);
-      filteredNodes  = filteredNodes.filter(n => teamIds.has(n.id) || reachable.has(n.id));
+      // Strict: both endpoints must be in the team — no cross-team peers leak in.
+      filteredEdges = filteredEdges.filter(e => teamIds.has(e.source) && teamIds.has(e.target));
+      filteredNodes = filteredNodes.filter(n => teamIds.has(n.id));
     }
 
     const styledNodes = circularLayout(

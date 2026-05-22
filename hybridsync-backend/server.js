@@ -118,10 +118,12 @@ function decorateUser(u, map) {
 }
 
 // Filter a list of users to those visible to the caller. Admin sees all,
-// manager sees only users in any team they manage.
+// manager sees only users in any team they manage. Accepts both teamIds[]
+// (new) and teamId (legacy JWT issued before multi-team) for back-compat.
 function scopeUsersForAuth(users, auth) {
   if (auth.role === 'admin') return users;
-  const allowed = new Set(auth.teamIds || []);
+  const ids = auth.teamIds && auth.teamIds.length ? auth.teamIds : (auth.teamId ? [auth.teamId] : []);
+  const allowed = new Set(ids);
   return users.filter(u => {
     if (u.teamId && allowed.has(u.teamId)) return true;
     if (u.teamIds && u.teamIds.some(id => allowed.has(id))) return true;
@@ -293,7 +295,9 @@ app.get('/api/schedule/week', requireAuth, async (req, res) => {
 // Manager: only the team(s) they manage.
 app.get('/api/teams', requireAuth, async (req, res) => {
   if (req.auth.role === 'manager') {
-    const ids   = req.auth.teamIds || [];
+    const ids = req.auth.teamIds && req.auth.teamIds.length
+      ? req.auth.teamIds
+      : (req.auth.teamId ? [req.auth.teamId] : []);
     const teams = (await Promise.all(ids.map(id => db.getTeam(id)))).filter(Boolean);
     return res.json(teams);
   }

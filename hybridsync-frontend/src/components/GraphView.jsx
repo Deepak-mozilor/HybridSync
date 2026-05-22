@@ -6,11 +6,60 @@ import ReactFlow, {
   Controls,
   MiniMap,
   addEdge,
+  BaseEdge,
+  EdgeLabelRenderer,
+  getBezierPath,
 } from 'reactflow';
 import 'reactflow/dist/style.css';
 
 const NODE_TYPES = {};
-const EDGE_TYPES = {};
+
+// Custom edge that renders the label as HTML (default React Flow edges render
+// the label inside SVG <text>, so a span with `title` for hover-tooltip never
+// renders). EdgeLabelRenderer portals the label into a positioned HTML overlay.
+function BidirectionalEdge({
+  id, sourceX, sourceY, targetX, targetY,
+  sourcePosition, targetPosition, data, style, markerEnd,
+}) {
+  const [path, labelX, labelY] = getBezierPath({
+    sourceX, sourceY, sourcePosition, targetX, targetY, targetPosition,
+  });
+  const { scoreAB, scoreBA, nameAB, nameBA, score } = data || {};
+  const hasBoth   = scoreAB != null && scoreBA != null;
+  const labelText = hasBoth ? `${scoreAB} ⇄ ${scoreBA}` : String(score);
+  const tooltip   = hasBoth
+    ? `${nameAB} → ${nameBA}: ${scoreAB}\n${nameBA} → ${nameAB}: ${scoreBA}`
+    : `Score: ${score}`;
+
+  return (
+    <>
+      <BaseEdge id={id} path={path} style={style} markerEnd={markerEnd} />
+      <EdgeLabelRenderer>
+        <div
+          title={tooltip}
+          style={{
+            position: 'absolute',
+            transform: `translate(-50%, -50%) translate(${labelX}px, ${labelY}px)`,
+            background: 'rgba(255,255,255,0.92)',
+            border: '1px solid #e5e7eb',
+            borderRadius: 6,
+            padding: '2px 7px',
+            fontSize: 11,
+            fontWeight: 700,
+            color: '#1e293b',
+            pointerEvents: 'all',
+            cursor: 'help',
+            whiteSpace: 'nowrap',
+          }}
+        >
+          {labelText}
+        </div>
+      </EdgeLabelRenderer>
+    </>
+  );
+}
+
+const EDGE_TYPES = { bidirectional: BidirectionalEdge };
 
 const TEAM_COLOR = {
   team_alpha: '#6366f1',
@@ -60,22 +109,12 @@ export default function GraphView({ graphData, filterTeam }) {
       }))
     );
 
-    const styledEdges = filteredEdges.map(e => {
-      const { scoreAB, scoreBA, nameAB, nameBA, score } = e.data;
-      const hasBoth = scoreAB != null && scoreBA != null;
-      const tip = hasBoth
-        ? `${nameAB} → ${nameBA}: ${scoreAB}\n${nameBA} → ${nameAB}: ${scoreBA}`
-        : `Score: ${score}`;
-      const labelText = hasBoth ? `${scoreAB} ⇄ ${scoreBA}` : String(score);
-      return {
-        ...e,
-        animated:     score >= 8,
-        label:        (<span title={tip} style={{ cursor: 'help' }}>{labelText}</span>),
-        labelStyle:   { fontSize: 11, fontWeight: 700 },
-        labelBgStyle: { fill: '#fff', fillOpacity: 0.9 },
-        style:        { ...e.style, stroke: score >= 7 ? '#6366f1' : '#9ca3af' },
-      };
-    });
+    const styledEdges = filteredEdges.map(e => ({
+      ...e,
+      type:     'bidirectional',
+      animated: e.data.score >= 8,
+      style:    { ...e.style, stroke: e.data.score >= 7 ? '#6366f1' : '#9ca3af' },
+    }));
 
     setNodes(styledNodes);
     setEdges(styledEdges);

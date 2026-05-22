@@ -42,16 +42,23 @@ async function fetchSlackInteractions(slackClient) {
 
   const oldest = String(Math.floor((Date.now() - 30 * 24 * 60 * 60 * 1000) / 1000));
 
-  // Symmetric pair accumulator
-  const pairs = {};
-  function add(a, b, field) {
-    if (!a || !b || a === b) return;
-    const key = [a, b].sort().join(':');
-    if (!pairs[key]) pairs[key] = { userA: key.split(':')[0], userB: key.split(':')[1], messages: 0, replies: 0, reactions: 0 };
-    pairs[key][field]++;
+  // Directional accumulator: pairs[userA][userB] = counts where userA initiated the
+  // interaction TARGETING userB. We track both directions independently so the AI
+  // can score how much A depends on B differently from how much B depends on A.
+  // Semantics chosen:
+  //   - A @mentions B in a message  → A→B (A is reaching out to B)
+  //   - A reacts to B's message     → A→B (A is acknowledging B)
+  //   - A replies in B's thread     → A→B (A is engaging with B's topic)
+  const directional = {};
+  function add(initiator, target, field) {
+    if (!initiator || !target || initiator === target) return;
+    if (!directional[initiator]) directional[initiator] = {};
+    if (!directional[initiator][target]) {
+      directional[initiator][target] = { messages: 0, replies: 0, reactions: 0 };
+    }
+    directional[initiator][target][field]++;
   }
 
-  // Extract real sender: prefer metadata (seeded messages), fall back to message.user.
   function realSender(msg) {
     return msg.user !== botId ? msg.user : null;
   }
@@ -72,32 +79,30 @@ async function fetchSlackInteractions(slackClient) {
         const sender = realSender(msg);
         if (!sender) continue;
 
-        // @mention interactions
+        // sender → each mentioned user
         for (const [, mentioned] of (msg.text || '').matchAll(mentionRe)) {
           add(sender, mentioned, 'messages');
         }
 
-        // Reaction interactions — reactions array is included in conversations.history
+        // reactor → sender (reactor acknowledges sender's message)
         for (const reaction of msg.reactions || []) {
           for (const reactor of reaction.users || []) {
-            add(sender, reactor, 'reactions');
+            add(reactor, sender, 'reactions');
           }
         }
 
-        // Thread reply interactions
+        // replier → thread author (replier engages with sender's topic)
         if ((msg.reply_count || 0) > 0) {
           const threadRes = await slackClient.conversations.replies({
             channel: ch.id,
             ts: msg.ts,
           });
-          for (const reply of (threadRes.messages || []).slice(1)) { // slice off parent
+          for (const reply of (threadRes.messages || []).slice(1)) { // skip parent
             const replier = realSender(reply);
             if (!replier) continue;
+            add(replier, sender, 'replies');
 
-            // Replier <-> thread author
-            add(sender, replier, 'replies');
-
-            // @mentions inside the reply
+            // @mentions inside the reply → replier → each mentioned
             for (const [, mentioned] of (reply.text || '').matchAll(mentionRe)) {
               add(replier, mentioned, 'messages');
             }
@@ -109,8 +114,14 @@ async function fetchSlackInteractions(slackClient) {
     } while (cursor);
   }
 
-  const result = Object.values(pairs);
-  console.log(`[fetchSlackInteractions] ${result.length} unique pairs across ${channels.length} channels.`);
+  // Flatten into {userA, userB, messages, replies, reactions} rows — one per direction.
+  const result = [];
+  for (const [a, peers] of Object.entries(directional)) {
+    for (const [b, counts] of Object.entries(peers)) {
+      result.push({ userA: a, userB: b, ...counts });
+    }
+  }
+  console.log(`[fetchSlackInteractions] ${result.length} directional rows across ${channels.length} channels.`);
   return result;
 }
 
@@ -132,24 +143,30 @@ async function runWeeklyMapping(slackClient) {
     return;
   }
 
-  // Enrich interactions with shared Google Calendar meeting counts where available
+  // Enrich each directional row with shared Google Calendar meeting count
+  // (symmetric: same value for both directions of the same pair).
   const enriched = await Promise.all(interactions.map(async i => {
     const sharedMeetings = await getSharedMeetingCount(i.userA, i.userB, 30).catch(() => 0);
     return { ...i, shared_meetings: sharedMeetings };
   }));
 
-  const prompt = `Analyze these 30-day interaction counts and compute a directional Dependency Score (1-10) for EACH direction of every user pair.
+  const prompt = `Analyze these 30-day DIRECTIONAL interaction counts and compute a Dependency Score (1-10) per row.
+Each row represents how much userA depends on userB based on userA's outgoing actions to userB:
+  - msgs:      @mentions of userB in messages sent by userA
+  - replies:   replies userA made in userB's threads
+  - reactions: emoji reactions userA placed on userB's messages
+  - shared_meetings: recurring calendar meetings with both as attendees (symmetric for the pair)
+
 Scoring: 9-10 = critical daily collaborator, 7-8 = high, 5-6 = moderate, 3-4 = low, 1-2 = minimal.
-shared_meetings counts recurring calendar meetings with both users as attendees — weight this heavily as it indicates structured collaboration.
+Weight shared_meetings heavily — structured collaboration is a strong dependency signal.
+Higher outgoing actions from A to B → A depends more on B.
 
-Dependency is directional: how much A depends on B can differ from how much B depends on A. A senior who is messaged at often but rarely initiates conversations may have a high incoming score (others depend on them) but a low outgoing one (they depend less on others). Use the raw interaction counts plus who-initiates-whom to set each direction independently.
+Data (one row per direction):
+${enriched.map(i => `- ${i.userA} -> ${i.userB}: ${i.messages} msgs, ${i.replies} replies, ${i.reactions} reactions, ${i.shared_meetings} shared meetings`).join('\n')}
 
-Data:
-${enriched.map(i => `- ${i.userA} <-> ${i.userB}: ${i.messages} msgs, ${i.replies} replies, ${i.reactions} reactions, ${i.shared_meetings} shared meetings`).join('\n')}
-
-Output ONLY a JSON array (no prose) with TWO rows per pair, one per direction:
-[{"userId":"A","peerId":"B","score":N}, {"userId":"B","peerId":"A","score":M}, ...]
-The two scores in a pair may be equal if the relationship is symmetric.`;
+Output ONLY a JSON array (no prose), one entry per input row:
+[{"userId":"A","peerId":"B","score":N}, ...]
+Use userId = the row's first user (the dependent) and peerId = the row's second user.`;
 
   console.log('[WeeklyMapping] Starting dependency graph rebuild...');
   const raw = await complete('You are HybridSync\'s dependency graph calculator. Output only valid JSON.', prompt);

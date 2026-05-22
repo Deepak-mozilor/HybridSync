@@ -60,13 +60,22 @@ export default function GraphView({ graphData, filterTeam }) {
       }))
     );
 
-    const styledEdges = filteredEdges.map(e => ({
-      ...e,
-      animated:    e.data.score >= 8,
-      labelStyle:  { fontSize: 11, fontWeight: 700 },
-      labelBgStyle:{ fill: '#fff', fillOpacity: 0.9 },
-      style:       { ...e.style, stroke: e.data.score >= 7 ? '#6366f1' : '#9ca3af' },
-    }));
+    const styledEdges = filteredEdges.map(e => {
+      const { scoreAB, scoreBA, nameAB, nameBA, score } = e.data;
+      const hasBoth = scoreAB != null && scoreBA != null;
+      const tip = hasBoth
+        ? `${nameAB} → ${nameBA}: ${scoreAB}\n${nameBA} → ${nameAB}: ${scoreBA}`
+        : `Score: ${score}`;
+      const labelText = hasBoth ? `${scoreAB} ⇄ ${scoreBA}` : String(score);
+      return {
+        ...e,
+        animated:     score >= 8,
+        label:        (<span title={tip} style={{ cursor: 'help' }}>{labelText}</span>),
+        labelStyle:   { fontSize: 11, fontWeight: 700 },
+        labelBgStyle: { fill: '#fff', fillOpacity: 0.9 },
+        style:        { ...e.style, stroke: score >= 7 ? '#6366f1' : '#9ca3af' },
+      };
+    });
 
     setNodes(styledNodes);
     setEdges(styledEdges);

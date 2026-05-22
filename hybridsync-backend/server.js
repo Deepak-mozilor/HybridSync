@@ -244,24 +244,47 @@ app.get('/api/graph', requireAuth, async (req, res) => {
     };
   });
 
-  const edges = [];
-  const seen  = new Set();
+  // Collect every directional edge first, then collapse each (A,B) pair into a
+  // single graph edge carrying both directional scores.
+  const nameById = Object.fromEntries(scoped.map(u => [u.id, u.displayName]));
+  const directional = new Map(); // "src->tgt" -> score
   for (const u of scoped) {
     const deps = await db.getDependencyGraph(u.id);
     for (const { peerId, score } of deps) {
       if (!allowed.has(peerId)) continue; // hide cross-team peers for managers
-      const key = [u.id, peerId].sort().join('--');
-      if (seen.has(key)) continue;
-      seen.add(key);
-      edges.push({
-        id:     `${u.id}-${peerId}`,
-        source: u.id,
-        target: peerId,
-        label:  String(score),
-        data:   { score },
-        style:  { strokeWidth: Math.max(1, score / 2.5) },
-      });
+      directional.set(`${u.id}->${peerId}`, score);
     }
+  }
+
+  const edges = [];
+  const seen  = new Set();
+  for (const [key, score] of directional) {
+    const [src, tgt] = key.split('->');
+    const pairKey = [src, tgt].sort().join('--');
+    if (seen.has(pairKey)) continue;
+    seen.add(pairKey);
+
+    // Use lexicographic order as canonical A/B so the orientation is stable.
+    const [A, B]  = [src, tgt].sort();
+    const scoreAB = directional.get(`${A}->${B}`);
+    const scoreBA = directional.get(`${B}->${A}`);
+    const a       = scoreAB ?? scoreBA; // mirror when only one direction exists
+    const b       = scoreBA ?? scoreAB;
+    const display = Math.max(a, b);
+
+    edges.push({
+      id:     `${A}-${B}`,
+      source: A,
+      target: B,
+      data:   {
+        score:    display,
+        scoreAB:  a,
+        scoreBA:  b,
+        nameAB:   nameById[A] || A,
+        nameBA:   nameById[B] || B,
+      },
+      style:  { strokeWidth: Math.max(1, display / 2.5) },
+    });
   }
 
   res.json({ nodes, edges });

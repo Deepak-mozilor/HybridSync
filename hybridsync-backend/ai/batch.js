@@ -138,16 +138,18 @@ async function runWeeklyMapping(slackClient) {
     return { ...i, shared_meetings: sharedMeetings };
   }));
 
-  const prompt = `Analyze these 30-day interaction counts and compute a Dependency Score (1-10) per user pair.
-Scoring: 9-10 = critical daily collaborators, 7-8 = high, 5-6 = moderate, 3-4 = low, 1-2 = minimal.
+  const prompt = `Analyze these 30-day interaction counts and compute a directional Dependency Score (1-10) for EACH direction of every user pair.
+Scoring: 9-10 = critical daily collaborator, 7-8 = high, 5-6 = moderate, 3-4 = low, 1-2 = minimal.
 shared_meetings counts recurring calendar meetings with both users as attendees — weight this heavily as it indicates structured collaboration.
+
+Dependency is directional: how much A depends on B can differ from how much B depends on A. A senior who is messaged at often but rarely initiates conversations may have a high incoming score (others depend on them) but a low outgoing one (they depend less on others). Use the raw interaction counts plus who-initiates-whom to set each direction independently.
 
 Data:
 ${enriched.map(i => `- ${i.userA} <-> ${i.userB}: ${i.messages} msgs, ${i.replies} replies, ${i.reactions} reactions, ${i.shared_meetings} shared meetings`).join('\n')}
 
-Output ONLY a JSON array (no prose):
-[{"userId":"...","peerId":"...","score":N}, ...]
-Output one direction per pair only — choose userId as the one who initiates more interactions.`;
+Output ONLY a JSON array (no prose) with TWO rows per pair, one per direction:
+[{"userId":"A","peerId":"B","score":N}, {"userId":"B","peerId":"A","score":M}, ...]
+The two scores in a pair may be equal if the relationship is symmetric.`;
 
   console.log('[WeeklyMapping] Starting dependency graph rebuild...');
   const raw = await complete('You are HybridSync\'s dependency graph calculator. Output only valid JSON.', prompt);

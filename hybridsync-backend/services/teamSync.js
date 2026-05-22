@@ -1,6 +1,8 @@
 // Syncs Slack channels → HybridSync teams.
 // Each channel the bot is a member of becomes a team.
 // Channel name → team name. Existing anchorDays are preserved.
+// Multi-team: writes to team_members (additive). users.team_id is kept as
+// a "primary team" pointer set to the first team a user joins.
 
 const db = require('../db');
 
@@ -12,8 +14,12 @@ async function syncTeamsFromChannels(slackClient) {
   });
 
   const results = [];
+  const memberChannels = listResp.channels.filter(c => c.is_member);
 
-  for (const ch of listResp.channels.filter(c => c.is_member)) {
+  // Build authoritative {userId -> Set<teamId>} from Slack so we can reconcile stale rows.
+  const observed = {};
+
+  for (const ch of memberChannels) {
     // Preserve anchorDays and managerId already stored for this channel.
     // For unset managers, default to the channel creator — manual reassignments
     // in the dashboard always win because existing.managerId is checked first.
@@ -25,16 +31,17 @@ async function syncTeamsFromChannels(slackClient) {
       managerId:  existing?.managerId  || ch.creator || null,
     });
 
-    // Assign all current channel members to this team
     let memberCount = 0;
     try {
       const membersResp = await slackClient.conversations.members({ channel: ch.id, limit: 200 });
       for (const userId of membersResp.members) {
         const user = await db.getUser(userId);
-        if (user) {
-          await db.updateUserTeam(userId, ch.id);
-          memberCount++;
-        }
+        if (!user) continue;
+        await db.addUserToTeam(userId, ch.id);
+        if (!user.teamId) await db.updateUserTeam(userId, ch.id); // set primary if unset
+        if (!observed[userId]) observed[userId] = new Set();
+        observed[userId].add(ch.id);
+        memberCount++;
       }
     } catch (e) {
       console.warn(`[TeamSync] Could not fetch members for #${ch.name}:`, e.message);
@@ -44,11 +51,23 @@ async function syncTeamsFromChannels(slackClient) {
     results.push({ channel: ch.name, channelId: ch.id, members: memberCount });
   }
 
+  // Reconcile: drop team_members rows for channels the user is no longer in
+  // (only among channels we just inspected — leaves untouched channels alone).
+  const seenChannels = new Set(memberChannels.map(c => c.id));
+  for (const [userId, currentSet] of Object.entries(observed)) {
+    const stored = await db.getUserTeams(userId);
+    for (const teamId of stored) {
+      if (seenChannels.has(teamId) && !currentSet.has(teamId)) {
+        await db.removeUserFromTeam(userId, teamId);
+      }
+    }
+  }
+
   return results;
 }
 
 // Auto-assign a single user to the team for the channel they just messaged in.
-// Creates the team if it doesn't exist yet.
+// Creates the team if it doesn't exist yet. Adds membership (does not overwrite).
 async function assignUserToChannel(slackClient, userId, channelId) {
   try {
     const chResp = await slackClient.conversations.info({ channel: channelId });
@@ -62,9 +81,10 @@ async function assignUserToChannel(slackClient, userId, channelId) {
       anchorDays: existing?.anchorDays || [],
       managerId:  existing?.managerId  || ch.creator || null,
     });
-    await db.updateUserTeam(userId, ch.id);
+    await db.addUserToTeam(userId, ch.id);
+    const user = await db.getUser(userId);
+    if (user && !user.teamId) await db.updateUserTeam(userId, ch.id);
   } catch (e) {
-    // Non-fatal — user keeps their current team
     console.warn('[TeamSync] assignUserToChannel failed:', e.message);
   }
 }

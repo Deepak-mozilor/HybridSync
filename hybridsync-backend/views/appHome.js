@@ -72,8 +72,11 @@ function buildConnectOAuthUrl(userId) {
 
 async function buildHomeView(userId) {
   const user       = await db.ensureUser(userId);
-  const team       = await db.getTeam(user.teamId);
-  const anchorDays = team?.anchorDays || [];
+  // Multi-team membership: union teamIds[] with legacy primary teamId.
+  const teamIds    = [...new Set([...(user.teamIds || []), ...(user.teamId ? [user.teamId] : [])])];
+  const userTeams  = (await Promise.all(teamIds.map(id => db.getTeam(id)))).filter(Boolean);
+  const team       = userTeams.find(t => t.id === user.teamId) || userTeams[0] || null;
+  const anchorDays = [...new Set(userTeams.flatMap(t => t.anchorDays || []))];
   const week       = upcomingWorkDays(5);
   const today      = todayKey();
   const schedule   = await db.getScheduleForDates(userId, week.map(w => w.dateKey));
@@ -138,7 +141,7 @@ async function buildHomeView(userId) {
     fields: [
       { type: 'mrkdwn', text: `📆 *Date*\n${friendlyDate(today)}` },
       { type: 'mrkdwn', text: `${todayEmoji} *Status*\n${STATUS_LABEL[todayStatus] || todayStatus}${isAnchorToday ? '  •  📌 Anchor' : ''}` },
-      { type: 'mrkdwn', text: `🏷️ *Team*\n${team?.name || 'Unassigned'}${roleLabel}` },
+      { type: 'mrkdwn', text: `🏷️ *Team${userTeams.length > 1 ? 's' : ''}*\n${userTeams.length ? userTeams.map(t => t.name).join(', ') : 'Unassigned'}${roleLabel}` },
       { type: 'mrkdwn', text: `📊 *This Week*\n${officeDays}d Office  ·  ${wfhDays}d WFH` },
       ...(meetingLoad ? [{ type: 'mrkdwn', text: `${meetingLoad.emoji} *Meetings Today*\n${meetingLoad.count} meeting${meetingLoad.count !== 1 ? 's' : ''}  ·  ${meetingLoad.totalMinutes}min  ·  ${meetingLoad.label}  ·  ${meetingLoad.onlineCount} online  ·  ${meetingLoad.offlineCount} offline` }] : []),
     ],
@@ -217,6 +220,21 @@ async function buildHomeView(userId) {
     });
   }
 
+  // --- Dashboard link (admins + team managers) ---
+  const isManager       = await db.isTeamManager(userId);
+  const showDashboard   = (user.role === 'admin' || isManager) && process.env.FRONTEND_URL;
+  const dashboardLabel  = user.role === 'admin' ? '🔗 Open Admin Dashboard' : '🔗 Open Manager Dashboard';
+  const dashboardBlocks = showDashboard ? [{
+    type: 'actions',
+    elements: [{
+      type:      'button',
+      text:      { type: 'plain_text', text: dashboardLabel, emoji: true },
+      style:     'primary',
+      url:       process.env.FRONTEND_URL,
+      action_id: 'open_dashboard',
+    }],
+  }] : [];
+
   // --- Assemble ---
   const blocks = [
     {
@@ -224,6 +242,7 @@ async function buildHomeView(userId) {
       text: { type: 'mrkdwn', text: `*HybridSync*  ·  My Schedule` },
     },
     ctx(`👋 Hey <@${userId}>! Here's your hybrid work snapshot for the week.`),
+    ...dashboardBlocks,
     divider(),
 
     md('*📍 Today at a Glance*'),

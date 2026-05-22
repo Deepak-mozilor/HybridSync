@@ -31,7 +31,7 @@ export default function ScheduleGrid({ rows, dates }) {
           {rows.map(({ user, schedule }) => (
             <tr key={user.id}>
               <td style={td()}><strong>{user.displayName}</strong><br /><span style={{ color: '#6b7280', fontSize: 11 }}>{user.id}</span></td>
-              <td style={td()}>{user.teamName || user.teamId}</td>
+              <td style={td()}>{(user.teamNames && user.teamNames.length ? user.teamNames.join(', ') : (user.teamName || user.teamId)) || '—'}</td>
               {schedule.map(s => (
                 <td key={s.dateKey} style={{ ...td(), textAlign: 'center' }}>
                   {s.status ? (

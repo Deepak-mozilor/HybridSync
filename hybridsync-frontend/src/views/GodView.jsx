@@ -158,7 +158,9 @@ export default function GodView({ onNavigate }) {
       </p>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
         {teams.map(team => {
-          const teamUsers = users.filter(u => u.teamId === team.id);
+          const teamUsers = users.filter(u =>
+            (u.teamIds && u.teamIds.includes(team.id)) || u.teamId === team.id
+          );
           const currentManager = users.find(u => u.id === team.managerId);
           return (
             <div key={team.id} style={{ display: 'flex', alignItems: 'center', gap: 12, background: '#fff', border: '1.5px solid #e5e7eb', borderRadius: 10, padding: '12px 18px' }}>

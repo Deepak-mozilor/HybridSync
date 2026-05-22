@@ -37,7 +37,9 @@ export default function GraphView({ graphData, filterTeam }) {
     let filteredEdges = graphData.edges;
 
     if (filterTeam) {
-      const teamIds = new Set(filteredNodes.filter(n => n.data.team === filterTeam).map(n => n.id));
+      const inTeam = n =>
+        (n.data.teamIds && n.data.teamIds.includes(filterTeam)) || n.data.team === filterTeam;
+      const teamIds = new Set(filteredNodes.filter(inTeam).map(n => n.id));
       filteredEdges = filteredEdges.filter(e => teamIds.has(e.source) || teamIds.has(e.target));
       const reachable = new Set([...filteredEdges.flatMap(e => [e.source, e.target])]);
       filteredNodes  = filteredNodes.filter(n => teamIds.has(n.id) || reachable.has(n.id));

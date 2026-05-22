@@ -60,3 +60,14 @@ CREATE TABLE IF NOT EXISTS workspaces (
   installed_at      TIMESTAMPTZ DEFAULT NOW()
 );
 
+-- Multi-team membership. users.team_id is kept as a back-compat "primary team"
+-- pointer; team_members is the source of truth when a user is in multiple
+-- Slack channels (= multiple teams).
+CREATE TABLE IF NOT EXISTS team_members (
+  user_id    TEXT NOT NULL,
+  team_id    TEXT NOT NULL,
+  joined_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  PRIMARY KEY (user_id, team_id)
+);
+CREATE INDEX IF NOT EXISTS team_members_team_idx ON team_members(team_id);
+

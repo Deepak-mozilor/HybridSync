@@ -4,6 +4,7 @@
 // Tables:
 //   users        — id, display_name, team_id, role, week (JSONB)
 //   teams        — id, name, anchor_days (TEXT[]), manager_id
+//   team_members — user_id, team_id (PK)  — multi-team membership
 //   overrides    — user_id, date_key, status
 //   dependencies — user_id, peer_id, score
 
@@ -20,11 +21,12 @@ const supabase = createClient(
 // Row <-> JS mappers
 // ---------------------------------------------------------------------------
 
-function toUser(row) {
+function toUser(row, teamIds = []) {
   return {
     id:                   row.id,
     displayName:          row.display_name,
-    teamId:               row.team_id            || null,
+    teamId:               row.team_id            || null, // primary/legacy team
+    teamIds:              teamIds,                         // all teams from team_members
     role:                 row.role,
     week:                 row.week               || {},
     googleChannelExpiry:  row.google_channel_expiry || null,
@@ -104,7 +106,8 @@ async function ensureUser(userId, { displayName } = {}) {
     if (displayName) {
       await supabase.from('users').update({ display_name: displayName }).eq('id', userId);
     }
-    return toUser({ ...data, display_name: displayName || data.display_name });
+    const teamIds = await getUserTeams(userId);
+    return toUser({ ...data, display_name: displayName || data.display_name }, teamIds);
   }
 
   // New user
@@ -118,19 +121,31 @@ async function ensureUser(userId, { displayName } = {}) {
   const { error } = await supabase.from('users').insert(row);
   if (error) throw new Error(`ensureUser insert: ${error.message}`);
 
-  return toUser(row);
+  return toUser(row, []);
 }
 
 async function getUser(userId) {
   const { data } = await supabase
     .from('users').select('*').eq('id', userId).maybeSingle();
-  return data ? toUser(data) : null;
+  if (!data) return null;
+  const teamIds = await getUserTeams(userId);
+  return toUser(data, teamIds);
 }
 
 async function getAllUsers() {
-  const { data, error } = await supabase.from('users').select('*');
-  if (error) throw new Error(`getAllUsers: ${error.message}`);
-  return (data || []).map(toUser);
+  const [usersRes, membersRes] = await Promise.all([
+    supabase.from('users').select('*'),
+    supabase.from('team_members').select('user_id, team_id'),
+  ]);
+  if (usersRes.error) throw new Error(`getAllUsers: ${usersRes.error.message}`);
+  if (membersRes.error) throw new Error(`getAllUsers (memberships): ${membersRes.error.message}`);
+
+  const teamsByUser = {};
+  for (const m of membersRes.data || []) {
+    if (!teamsByUser[m.user_id]) teamsByUser[m.user_id] = [];
+    teamsByUser[m.user_id].push(m.team_id);
+  }
+  return (usersRes.data || []).map(row => toUser(row, teamsByUser[row.id] || []));
 }
 
 // ---------------------------------------------------------------------------
@@ -313,23 +328,74 @@ async function upsertTeam(teamData) {
 }
 
 async function updateUserTeam(userId, teamId) {
+  // Sets users.team_id (legacy "primary team" pointer). team_members is the
+  // source of truth for multi-team membership — use addUserToTeam for that.
   const { error } = await supabase
     .from('users').update({ team_id: teamId }).eq('id', userId);
   if (error) throw new Error(`updateUserTeam: ${error.message}`);
 }
 
-async function getTeammates(userId) {
-  const { data: user } = await supabase
-    .from('users').select('team_id').eq('id', userId).maybeSingle();
-  if (!user || !user.team_id) return [];
+async function addUserToTeam(userId, teamId) {
+  const { error } = await supabase
+    .from('team_members')
+    .upsert({ user_id: userId, team_id: teamId }, { onConflict: 'user_id,team_id' });
+  if (error) throw new Error(`addUserToTeam: ${error.message}`);
+}
 
+async function removeUserFromTeam(userId, teamId) {
+  const { error } = await supabase
+    .from('team_members')
+    .delete()
+    .eq('user_id', userId)
+    .eq('team_id', teamId);
+  if (error) throw new Error(`removeUserFromTeam: ${error.message}`);
+}
+
+async function getUserTeams(userId) {
   const { data, error } = await supabase
-    .from('users')
-    .select('*')
-    .eq('team_id', user.team_id)
-    .neq('id', userId);
-  if (error) throw new Error(`getTeammates: ${error.message}`);
-  return (data || []).map(toUser);
+    .from('team_members').select('team_id').eq('user_id', userId);
+  if (error) throw new Error(`getUserTeams: ${error.message}`);
+  return (data || []).map(r => r.team_id);
+}
+
+async function getTeamMembers(teamId) {
+  const { data, error } = await supabase
+    .from('team_members').select('user_id').eq('team_id', teamId);
+  if (error) throw new Error(`getTeamMembers: ${error.message}`);
+  return (data || []).map(r => r.user_id);
+}
+
+async function getTeammates(userId) {
+  const teamIds = await getUserTeams(userId);
+  if (!teamIds.length) return [];
+
+  const { data: members, error: mErr } = await supabase
+    .from('team_members').select('user_id').in('team_id', teamIds);
+  if (mErr) throw new Error(`getTeammates (members): ${mErr.message}`);
+
+  const peerIds = [...new Set((members || []).map(m => m.user_id))].filter(id => id !== userId);
+  if (!peerIds.length) return [];
+
+  const { data: users, error: uErr } = await supabase
+    .from('users').select('*').in('id', peerIds);
+  if (uErr) throw new Error(`getTeammates (users): ${uErr.message}`);
+
+  // Attach teamIds to each peer so callers see full membership
+  const { data: peerMemberships } = await supabase
+    .from('team_members').select('user_id, team_id').in('user_id', peerIds);
+  const peerTeamsById = {};
+  for (const m of peerMemberships || []) {
+    if (!peerTeamsById[m.user_id]) peerTeamsById[m.user_id] = [];
+    peerTeamsById[m.user_id].push(m.team_id);
+  }
+  return (users || []).map(u => toUser(u, peerTeamsById[u.id] || []));
+}
+
+async function isTeamManager(userId) {
+  const { data, error } = await supabase
+    .from('teams').select('id').eq('manager_id', userId).limit(1);
+  if (error) throw new Error(`isTeamManager: ${error.message}`);
+  return (data || []).length > 0;
 }
 
 // ---------------------------------------------------------------------------
@@ -449,7 +515,12 @@ module.exports = {
   getAllTeams,
   upsertTeam,
   updateUserTeam,
+  addUserToTeam,
+  removeUserFromTeam,
+  getUserTeams,
+  getTeamMembers,
   getTeammates,
+  isTeamManager,
   findUserByName,
   getDependencyGraph,
   getAllManualDependencies,

@@ -119,7 +119,12 @@ SLACK FORMATTING RULES (strictly follow these):
     switch (toolName) {
       case 'find_user': {
         const users = await db.findUserByName(input.name);
-        return JSON.stringify(users.map(u => ({ id: u.id, name: u.displayName, teamId: u.teamId })));
+        return JSON.stringify(users.map(u => ({
+          id:      u.id,
+          name:    u.displayName,
+          teamId:  u.teamId,
+          teamIds: u.teamIds && u.teamIds.length ? u.teamIds : (u.teamId ? [u.teamId] : []),
+        })));
       }
 
       case 'get_user_schedule': {

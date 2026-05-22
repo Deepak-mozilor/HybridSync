@@ -38,8 +38,11 @@ export default function SquadView({ focusTeam }) {
 
   if (error) return <div style={{ color: '#ef4444', padding: 20 }}>{error}</div>;
 
+  const inTeam = (user, teamId) =>
+    (user.teamIds && user.teamIds.includes(teamId)) || user.teamId === teamId;
+
   const filteredSchedule = schedule
-    ? { ...schedule, rows: schedule.rows.filter(r => r.user.teamId === activeTeam) }
+    ? { ...schedule, rows: schedule.rows.filter(r => inTeam(r.user, activeTeam)) }
     : null;
 
   return (

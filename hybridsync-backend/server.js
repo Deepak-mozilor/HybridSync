@@ -99,11 +99,22 @@ function requireAuth(req, res, next) {
   }
 }
 
-// Builds a teamId -> teamName lookup from Firestore
+// Builds a teamId -> teamName lookup across both legacy primary teamId
+// and the multi-team teamIds array on each user.
 async function teamNameMap(users) {
-  const ids   = [...new Set(users.map(u => u.teamId).filter(id => id && typeof id === 'string'))];
-  const teams = await Promise.all(ids.map(id => db.getTeam(id)));
+  const ids = new Set();
+  for (const u of users) {
+    if (u.teamId && typeof u.teamId === 'string') ids.add(u.teamId);
+    for (const id of u.teamIds || []) if (id) ids.add(id);
+  }
+  const teams = await Promise.all([...ids].map(id => db.getTeam(id)));
   return Object.fromEntries(teams.filter(Boolean).map(t => [t.id, t.name]));
+}
+
+function decorateUser(u, map) {
+  const teamIds   = u.teamIds && u.teamIds.length ? u.teamIds : (u.teamId ? [u.teamId] : []);
+  const teamNames = teamIds.map(id => map[id] || id);
+  return { ...u, teamIds, teamNames, teamName: map[u.teamId] || u.teamId };
 }
 
 // GET /api/auth/slack — initiate Sign in with Slack (OpenID Connect)
@@ -178,16 +189,20 @@ app.get('/api/auth/slack/callback', async (req, res) => {
 // GET /api/auth/teams — public: list of teams for the login page dropdown
 app.get('/api/auth/teams', async (req, res) => {
   const users   = await db.getAllUsers();
-  const teamIds = [...new Set(users.map(u => u.teamId).filter(Boolean))];
-  const teams   = (await Promise.all(teamIds.map(id => db.getTeam(id)))).filter(Boolean);
+  const teamIds = new Set();
+  for (const u of users) {
+    if (u.teamId) teamIds.add(u.teamId);
+    for (const id of u.teamIds || []) teamIds.add(id);
+  }
+  const teams = (await Promise.all([...teamIds].map(id => db.getTeam(id)))).filter(Boolean);
   res.json(teams.map(t => ({ id: t.id, name: t.name })));
 });
 
-// GET /api/users — all users with team info
+// GET /api/users — all users with team info (teamIds[] + teamNames[])
 app.get('/api/users', requireAuth, async (req, res) => {
   const users = await db.getAllUsers();
   const map   = await teamNameMap(users);
-  res.json(users.map(u => ({ ...u, teamName: map[u.teamId] || u.teamId })));
+  res.json(users.map(u => decorateUser(u, map)));
 });
 
 // GET /api/graph — full company dependency graph as { nodes, edges }
@@ -196,11 +211,22 @@ app.get('/api/graph', requireAuth, async (req, res) => {
   const users = await db.getAllUsers();
 
   const map   = await teamNameMap(users);
-  const nodes = users.map(u => ({
-    id: u.id,
-    data: { label: u.displayName, team: u.teamId, teamName: map[u.teamId] || u.teamId, role: u.role },
-    position: { x: 0, y: 0 },
-  }));
+  const nodes = users.map(u => {
+    const teamIds   = u.teamIds && u.teamIds.length ? u.teamIds : (u.teamId ? [u.teamId] : []);
+    const teamNames = teamIds.map(id => map[id] || id);
+    return {
+      id: u.id,
+      data: {
+        label:    u.displayName,
+        team:     u.teamId,                          // primary (legacy field)
+        teamName: map[u.teamId] || u.teamId,
+        teamIds,
+        teamNames,
+        role:     u.role,
+      },
+      position: { x: 0, y: 0 },
+    };
+  });
 
   const edges = [];
   const seen  = new Set();
@@ -240,7 +266,7 @@ app.get('/api/schedule/week', requireAuth, async (req, res) => {
   const map  = await teamNameMap(users);
   const rows = await Promise.all(
     users.map(async u => ({
-      user:     { ...u, teamName: map[u.teamId] || u.teamId },
+      user:     decorateUser(u, map),
       schedule: await db.getScheduleForDates(u.id, dateKeys),
     }))
   );
@@ -248,11 +274,15 @@ app.get('/api/schedule/week', requireAuth, async (req, res) => {
   res.json({ dates, rows });
 });
 
-// GET /api/teams — all teams with anchorDays
+// GET /api/teams — all teams that have any membership (primary or multi-team)
 app.get('/api/teams', requireAuth, async (req, res) => {
   const users   = await db.getAllUsers();
-  const teamIds = [...new Set(users.map(u => u.teamId).filter(id => id && typeof id === 'string'))];
-  const teams   = await Promise.all(teamIds.map(id => db.getTeam(id)));
+  const teamIds = new Set();
+  for (const u of users) {
+    if (u.teamId) teamIds.add(u.teamId);
+    for (const id of u.teamIds || []) teamIds.add(id);
+  }
+  const teams = await Promise.all([...teamIds].map(id => db.getTeam(id)));
   res.json(teams.filter(Boolean));
 });
 

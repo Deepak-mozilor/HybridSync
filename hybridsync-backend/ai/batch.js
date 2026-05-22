@@ -150,6 +150,29 @@ async function runWeeklyMapping(slackClient) {
     return { ...i, shared_meetings: sharedMeetings };
   }));
 
+  // Expand to guarantee both directions per pair. Real Slack data often has
+  // one-way rows (e.g., A reacted to B's messages but B never reacted to A's).
+  // Without the reverse row the AI has nothing to score B->A and /api/graph
+  // mirrors A->B's score, making the edge look symmetric. Insert a zero-row
+  // for the missing direction so the AI explicitly scores it as low.
+  const seen = new Set(enriched.map(i => `${i.userA}->${i.userB}`));
+  const sharedFor = {};
+  enriched.forEach(i => {
+    sharedFor[[i.userA, i.userB].sort().join(':')] = i.shared_meetings;
+  });
+  const fullRows = [...enriched];
+  for (const i of enriched) {
+    const reverseKey = `${i.userB}->${i.userA}`;
+    if (seen.has(reverseKey)) continue;
+    seen.add(reverseKey);
+    fullRows.push({
+      userA: i.userB,
+      userB: i.userA,
+      messages: 0, replies: 0, reactions: 0,
+      shared_meetings: sharedFor[[i.userA, i.userB].sort().join(':')] || 0,
+    });
+  }
+
   const prompt = `Analyze these 30-day DIRECTIONAL interaction counts and compute a Dependency Score (1-10) per row.
 Each row represents how much userA depends on userB based on userA's outgoing actions to userB:
   - msgs:      @mentions of userB in messages sent by userA
@@ -161,8 +184,8 @@ Scoring: 9-10 = critical daily collaborator, 7-8 = high, 5-6 = moderate, 3-4 = l
 Weight shared_meetings heavily — structured collaboration is a strong dependency signal.
 Higher outgoing actions from A to B → A depends more on B.
 
-Data (one row per direction):
-${enriched.map(i => `- ${i.userA} -> ${i.userB}: ${i.messages} msgs, ${i.replies} replies, ${i.reactions} reactions, ${i.shared_meetings} shared meetings`).join('\n')}
+Data (one row per direction — zero-count rows are real and mean low dependency in that direction):
+${fullRows.map(i => `- ${i.userA} -> ${i.userB}: ${i.messages} msgs, ${i.replies} replies, ${i.reactions} reactions, ${i.shared_meetings} shared meetings`).join('\n')}
 
 Output ONLY a JSON array (no prose), one entry per input row:
 [{"userId":"A","peerId":"B","score":N}, ...]

@@ -39,7 +39,7 @@ export default function GodView({ onNavigate }) {
 
   useEffect(() => {
     load();
-    const id = setInterval(() => load(), 10_000);
+    const id = setInterval(() => load(), 30_000);
     return () => clearInterval(id);
   }, [load]);
 

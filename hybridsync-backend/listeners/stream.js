@@ -1,5 +1,16 @@
 const db = require('../db');
-const { todayKey, parseTargetDate, toKey } = require('../utils/dates');
+const { todayKey, toKey } = require('../utils/dates');
+
+// Pretty label for an ISO dateKey, given today's ISO dateKey.
+// "tomorrow (Sat May 23)" / "Monday May 25"
+function labelForDateKey(dateKey, today) {
+  const todayDate = new Date(today   + 'T00:00:00');
+  const target    = new Date(dateKey + 'T00:00:00');
+  const diffDays  = Math.round((target - todayDate) / 86400000);
+  const pretty    = target.toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' });
+  if (diffDays === 1) return `tomorrow (${pretty})`;
+  return pretty;
+}
 const { publishHome } = require('../views/appHome');
 const orchestrator = require('../ai/orchestrator');
 const { resolveDisplayName } = require('./appHome');
@@ -22,7 +33,7 @@ Respond with ONLY a JSON object — no explanation, no markdown:
 Fields:
 - isUpdate: true only if the sender is stating their OWN status (not asking about others, not a general question)
 - status: "WFH" | "Office" | "Sick" | "Leave"  (null if isUpdate is false)
-- dateKey: ISO date in YYYY-MM-DD format. Resolve any date reference relative to TODAY (provided in the user message): "today", "tomorrow", weekday names ("monday"), absolute dates ("june 2", "Jun 2nd", "2026-06-02", "next friday"). If no date is mentioned, default to today.
+- dateKey: ISO date in YYYY-MM-DD format. Resolve any date reference relative to TODAY (provided in the user message): "today" / "tdy", "tomorrow" / "tmr" / "tmrw" / "tmw" / "tom", weekday names ("monday" / "mon", "tuesday" / "tue" / "tues", etc.), absolute dates ("june 2", "Jun 2nd", "2026-06-02", "next friday"), or "next week" (= next Monday). If no date is mentioned, default to today.
 
 Rules:
 - "not wfh" / "won't be wfh" → Office
@@ -134,7 +145,7 @@ function register(app) {
       const dateKey = hit.dateKey;
       const today   = todayKey();
       const isToday = dateKey === today;
-      const label   = isToday ? 'today' : parseTargetDate(dateKey).label || dateKey;
+      const label   = isToday ? 'today' : labelForDateKey(dateKey, today);
 
       const maxDate = new Date(); maxDate.setMonth(maxDate.getMonth() + 1);
       const maxKey  = toKey(maxDate);

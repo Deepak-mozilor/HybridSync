@@ -1,4 +1,5 @@
 require('dotenv').config();
+const Sentry = require('./instrument'); // must run before any other require
 const { App } = require('@slack/bolt');
 const db = require('./db');
 const slackStatus = require('./services/slackStatus');
@@ -52,6 +53,13 @@ const app = new App({
   // a separate port that Railway doesn't expose publicly.
 });
 
+// Capture any error that a Slack handler throws and Bolt's global error
+// hook surfaces. Without this, errors print to stdout and disappear.
+app.error(async (error) => {
+  console.error('[Bolt error]', error);
+  Sentry.captureException(error);
+});
+
 // Phase 2A — The Stream (deterministic, NO AI)
 streamListener.register(app);
 
@@ -93,11 +101,18 @@ async function backfillGoogleEmails() {
   console.log('⚡️ HybridSync Bolt app is running in Socket Mode.');
 
   // Backfill Google emails for users who connected before email-saving was added
-  backfillGoogleEmails().catch(e => console.error('[Backfill] Error:', e.message));
+  backfillGoogleEmails().catch(e => {
+    console.error('[Backfill] Error:', e.message);
+    Sentry.captureException(e);
+  });
 
   // Phase 3 — Start scheduled AI batch jobs (per-workspace clients built from DB)
   batch.start();
 
   // Phase 4 — REST API for the React admin dashboard
   apiServer.start(process.env.PORT || 3001);
-})();
+})().catch(e => {
+  console.error('[Startup] Fatal:', e);
+  Sentry.captureException(e);
+  process.exit(1);
+});

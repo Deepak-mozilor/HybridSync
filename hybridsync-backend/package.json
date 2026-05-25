@@ -16,6 +16,7 @@
   "type": "commonjs",
   "dependencies": {
     "@anthropic-ai/sdk": "^0.96.0",
+    "@sentry/node": "^10.53.1",
     "@slack/bolt": "^4.7.2",
     "@supabase/supabase-js": "^2.105.4",
     "cors": "^2.8.6",

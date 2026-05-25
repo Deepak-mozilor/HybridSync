@@ -262,19 +262,26 @@ async function getSimulatedInteractions() {
 // Register cron jobs — slackClient passed in from app.js
 // ---------------------------------------------------------------------------
 
+// Reports a cron-job failure to both stdout and Sentry.
+function reportCronError(job, e) {
+  console.error(`[${job}] Error:`, e.message);
+  const Sentry = require('../instrument');
+  Sentry.captureException(e, { tags: { cron_job: job } });
+}
+
 function start() {
   cron.schedule('0 2 * * 0', async () => {
     const targets = await listWorkspaceClients();
     if (!targets.length) return console.warn('[WeeklyMapping] No workspace installed — skipping');
     for (const { workspaceId, client } of targets) {
       await runWeeklyMapping(client, workspaceId)
-        .catch(e => console.error(`[WeeklyMapping] ${workspaceId} error:`, e.message));
+        .catch(e => reportCronError(`WeeklyMapping/${workspaceId}`, e));
     }
   });
   // Renew Google Calendar webhook channels daily before they expire (max 7 days)
-  cron.schedule('0 3 * * *', () => renewChannels().catch(e => console.error('[Google] Channel renewal error:', e.message)));
+  cron.schedule('0 3 * * *', () => renewChannels().catch(e => reportCronError('GoogleChannelRenewal', e)));
   // Daily Slack-status sweep — Mon-Fri 8 AM IST (= 02:30 UTC)
-  cron.schedule('30 2 * * 1-5', () => syncAllUsersForToday().catch(e => console.error('[DailyStatusSync] Error:', e.message)));
+  cron.schedule('30 2 * * 1-5', () => syncAllUsersForToday().catch(e => reportCronError('DailyStatusSync', e)));
   console.log('[Batch] Scheduled: weekly mapping Sun 2 AM, Google channel renewal daily 3 AM, daily status sync Mon-Fri 8 AM IST.');
 }
 

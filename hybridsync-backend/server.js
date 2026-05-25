@@ -548,6 +548,12 @@ app.post('/api/sync-teams', requireAuth, async (req, res) => {
 });
 
 
+// Express error capture — must come AFTER all routes/middleware.
+// Sentry.setupExpressErrorHandler reports any error passed via next(err) or
+// thrown inside async handlers.
+const Sentry = require('./instrument');
+Sentry.setupExpressErrorHandler(app);
+
 function start(port = 3001) {
   app.listen(port, () => console.log(`[API] REST server listening on http://localhost:${port}`));
 }

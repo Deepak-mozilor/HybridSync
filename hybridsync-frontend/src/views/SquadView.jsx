@@ -3,6 +3,7 @@ import { fetchGraph, fetchWeekSchedule, fetchTeams } from '../api';
 import GraphView    from '../components/GraphView';
 import ScheduleGrid from '../components/ScheduleGrid';
 import AnchorEditor from '../components/AnchorEditor';
+import DependencySearch from '../components/DependencySearch';
 
 export default function SquadView({ focusTeam }) {
   const [graph,      setGraph]      = useState(null);
@@ -77,6 +78,8 @@ export default function SquadView({ focusTeam }) {
           ))}
         </div>
       )}
+
+      <DependencySearch graph={graph} teamFilter={activeTeam} />
 
       <GraphView graphData={graph} filterTeam={activeTeam} />
 

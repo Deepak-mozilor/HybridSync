@@ -2,6 +2,7 @@ import { useEffect, useState, useCallback } from 'react';
 import { fetchGraph, fetchWeekSchedule, fetchTeams, fetchUsers, setTeamManager } from '../api';
 import GraphView    from '../components/GraphView';
 import ScheduleGrid from '../components/ScheduleGrid';
+import DependencySearch from '../components/DependencySearch';
 
 export default function GodView({ onNavigate }) {
   const [graph,        setGraph]        = useState(null);
@@ -144,6 +145,8 @@ export default function GodView({ onNavigate }) {
           })}
         </div>
       )}
+
+      <DependencySearch graph={graph} />
 
       <GraphView graphData={graph} />
 

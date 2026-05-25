@@ -41,10 +41,11 @@ function classifySlackStatus(emoji, text) {
 }
 
 function register(app) {
-  app.event('user_change', async ({ event, client }) => {
+  app.event('user_change', async ({ event, context, client }) => {
     try {
-      const userId  = event.user?.id;
-      const profile = event.user?.profile;
+      const userId      = event.user?.id;
+      const profile     = event.user?.profile;
+      const workspaceId = context.teamId || event.user?.team_id;
       if (!userId || !profile) return;
 
       // Ignore changes triggered by HybridSync itself
@@ -60,7 +61,7 @@ function register(app) {
       const current = await db.getStatusForDate(userId, today);
       if (current === status) return; // already matches — no update needed
 
-      await db.ensureUser(userId);
+      await db.ensureUser(userId, { workspaceId });
       await db.setStatus(userId, today, status);
       console.log(`[SlackStatusSync] ${userId} → ${status} (from Slack status "${emoji} ${text}")`);
 

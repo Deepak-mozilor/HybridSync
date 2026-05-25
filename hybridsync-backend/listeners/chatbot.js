@@ -7,10 +7,10 @@ const STATUS_EMOJI = { WFH: '🏠', Office: '🏢', Sick: '🤒', Leave: '🌴' 
 // In-memory set — prevents sending the welcome message twice per session.
 const welcomed = new Set();
 
-async function buildWelcomeBlocks() {
+async function buildWelcomeBlocks(workspaceId) {
   const week     = upcomingWorkDays(5);
   const today    = todayKey();
-  const users    = await db.getAllUsers();
+  const users    = await db.getAllUsers(workspaceId);
   const dateKeys = week.map(w => w.dateKey);
 
   // Emojis are double-width in monospace. Col width = 5 visual chars.
@@ -63,11 +63,11 @@ async function buildWelcomeBlocks() {
   ];
 }
 
-async function sendWelcome(client, userId) {
+async function sendWelcome(client, userId, workspaceId) {
   if (welcomed.has(userId)) return;
   welcomed.add(userId); // mark immediately to prevent races
   try {
-    const blocks = await buildWelcomeBlocks();
+    const blocks = await buildWelcomeBlocks(workspaceId);
     await client.chat.postMessage({ channel: userId, text: '👋 Welcome to HybridSync Assistant!', blocks });
     console.log(`[Chatbot] Sent welcome to ${userId}`);
   } catch (err) {
@@ -77,18 +77,20 @@ async function sendWelcome(client, userId) {
 
 function register(app) {
   // Send welcome snapshot when user first opens the Messages tab with the bot.
-  app.event('app_home_opened', ({ event, client }) => {
+  app.event('app_home_opened', ({ event, context, client }) => {
     if (event.tab !== 'messages') return;
-    sendWelcome(client, event.user).catch(() => {});
+    sendWelcome(client, event.user, context.teamId || event.team).catch(() => {});
   });
 
   // Handle all DMs.
-  app.message(async ({ message, client, logger }) => {
+  app.message(async ({ message, context, client, logger }) => {
     if (message.channel_type !== 'im') return;
     if (message.subtype || message.bot_id) return;
 
+    const workspaceId = context.teamId || message.team;
+
     // Send welcome only if app_home_opened never fired (fallback).
-    if (!welcomed.has(message.user)) await sendWelcome(client, message.user);
+    if (!welcomed.has(message.user)) await sendWelcome(client, message.user, workspaceId);
 
     const question = (message.text || '').trim();
     if (!question) return;
@@ -100,7 +102,7 @@ function register(app) {
     }).catch(() => null);
 
     try {
-      const reply = await chat(message.user, question, client);
+      const reply = await chat(message.user, question, client, workspaceId);
       if (loading) {
         // Replace the loading message with the real response
         await client.chat.update({

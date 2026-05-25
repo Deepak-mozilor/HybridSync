@@ -19,7 +19,7 @@ function register(app) {
       const userId = body.user.id;
       const date   = ctx.date || todayKey();
 
-      await db.ensureUser(userId);
+      await db.ensureUser(userId, { workspaceId: body.team?.id });
       await db.setStatus(userId, date, 'WFH');
       await publishHome(client, userId);
 
@@ -39,7 +39,7 @@ function register(app) {
       const userId = body.user.id;
       const date   = ctx.date || todayKey();
 
-      await db.ensureUser(userId);
+      await db.ensureUser(userId, { workspaceId: body.team?.id });
       await db.setStatus(userId, date, 'Office');  // confirm the choice in DB
       await publishHome(client, userId);            // refresh App Home
 

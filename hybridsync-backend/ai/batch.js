@@ -9,12 +9,10 @@ const { runAgentLoop, complete, getProvider } = require('./provider');
 const { getSharedMeetingCount, renewChannels } = require('../services/googleCalendar');
 const { syncAllUsersForToday } = require('../services/slackStatus');
 
-// Build a per-workspace WebClient from the stored bot token.
-// Returns null if no workspace is installed yet.
-async function getWorkspaceClient() {
+// Builds a per-workspace WebClient list, one per installed workspace.
+async function listWorkspaceClients() {
   const workspaces = await db.getAllWorkspaces();
-  if (!workspaces.length) return null;
-  return new WebClient(workspaces[0].bot_token);
+  return workspaces.map(w => ({ workspaceId: w.id, client: new WebClient(w.bot_token) }));
 }
 
 // ---------------------------------------------------------------------------
@@ -129,8 +127,9 @@ async function fetchSlackInteractions(slackClient) {
 // Weekly Mapping — 2:00 AM every Sunday
 // ---------------------------------------------------------------------------
 
-async function runWeeklyMapping(slackClient) {
+async function runWeeklyMapping(slackClient, workspaceId) {
   if (!getProvider()) { console.log('[WeeklyMapping] No API key — skipped.'); return; }
+  if (!workspaceId) throw new Error('runWeeklyMapping: workspaceId is required');
 
   // Use real Slack interactions when a client is provided; fall back to the
   // simulated feed so the function still works standalone in tests.
@@ -201,12 +200,12 @@ Use userId = the row's first user (the dependent) and peerId = the row's second 
     const edges  = Array.isArray(parsed) ? parsed : (parsed.dependencies || parsed.edges || []);
 
     // Save manual edges before wiping — they will be restored after.
-    const manualEdges = await db.getAllManualDependencies();
+    const manualEdges = await db.getAllManualDependencies(workspaceId);
 
-    // Wipe all existing edges so stale scores don't persist.
+    // Wipe existing edges for THIS workspace so stale scores don't persist.
     const { createClient } = require('@supabase/supabase-js');
     const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_KEY);
-    await supabase.from('dependencies').delete().neq('user_id', '');
+    await supabase.from('dependencies').delete().eq('workspace_id', workspaceId);
 
     // Write AI-calculated scores.
     const byUser = {};
@@ -252,9 +251,12 @@ async function getSimulatedInteractions() {
 
 function start() {
   cron.schedule('0 2 * * 0', async () => {
-    const client = await getWorkspaceClient();
-    if (!client) return console.warn('[WeeklyMapping] No workspace installed — skipping');
-    runWeeklyMapping(client).catch(e => console.error('[WeeklyMapping] Error:', e.message));
+    const targets = await listWorkspaceClients();
+    if (!targets.length) return console.warn('[WeeklyMapping] No workspace installed — skipping');
+    for (const { workspaceId, client } of targets) {
+      await runWeeklyMapping(client, workspaceId)
+        .catch(e => console.error(`[WeeklyMapping] ${workspaceId} error:`, e.message));
+    }
   });
   // Renew Google Calendar webhook channels daily before they expire (max 7 days)
   cron.schedule('0 3 * * *', () => renewChannels().catch(e => console.error('[Google] Channel renewal error:', e.message)));

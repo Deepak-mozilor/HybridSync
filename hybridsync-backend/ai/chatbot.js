@@ -83,7 +83,7 @@ const TOOLS = [
   },
 ];
 
-async function chat(requestingUserId, userMessage, slackClient) {
+async function chat(requestingUserId, userMessage, slackClient, workspaceId) {
   const week  = upcomingWorkDays(5);
   const today = todayKey();
   const weekContext = week.map(w => `${w.day} ${w.dateKey}`).join(', ');
@@ -118,7 +118,7 @@ SLACK FORMATTING RULES (strictly follow these):
 
     switch (toolName) {
       case 'find_user': {
-        const users = await db.findUserByName(input.name);
+        const users = await db.findUserByName(input.name, workspaceId);
         return JSON.stringify(users.map(u => ({
           id:      u.id,
           name:    u.displayName,
@@ -138,7 +138,7 @@ SLACK FORMATTING RULES (strictly follow these):
       }
 
       case 'get_team_schedule': {
-        const users    = await db.getAllUsers();
+        const users    = await db.getAllUsers(workspaceId);
         const dateKeys = week.map(w => w.dateKey);
         const rows = [];
         for (const user of users) {

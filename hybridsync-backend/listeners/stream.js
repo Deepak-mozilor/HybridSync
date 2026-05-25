@@ -105,12 +105,13 @@ const STATUS_EMOJI_MAP = { WFH: 'house', Office: 'office', Sick: 'face_with_ther
 
 function register(app) {
   // Persist any user the moment they join a channel the bot is in.
-  app.event('member_joined_channel', async ({ event, client, logger }) => {
+  app.event('member_joined_channel', async ({ event, context, client, logger }) => {
     if (event.user === event.bot_id) return; // ignore the bot itself joining
     try {
+      const workspaceId = context.teamId || event.team;
       const displayName = await resolveDisplayName(client, event.user);
-      await db.ensureUser(event.user, { displayName });
-      await assignUserToChannel(client, event.user, event.channel);
+      await db.ensureUser(event.user, { displayName, workspaceId });
+      await assignUserToChannel(client, event.user, event.channel, workspaceId);
       console.log(`[Stream] New member: ${displayName} (${event.user}) joined channel ${event.channel}`);
     } catch (err) {
       logger.error('[Stream] member_joined_channel error:', err);
@@ -131,7 +132,7 @@ function register(app) {
   app.event('channel_left', onBotLeft);
   app.event('group_left',   onBotLeft);
 
-  app.message(async ({ message, say, client, logger }) => {
+  app.message(async ({ message, context, say, client, logger }) => {
     if (message.subtype || message.bot_id) return;
     if (message.channel_type === 'im') return; // DMs handled by chatbot listener
 
@@ -152,9 +153,10 @@ function register(app) {
     const hit = result; // { kind: 'hit', status, dateKey }
 
     try {
+      const workspaceId = context.teamId || message.team;
       const displayName = await resolveDisplayName(client, message.user);
-      await db.ensureUser(message.user, { displayName });
-      await assignUserToChannel(client, message.user, message.channel);
+      await db.ensureUser(message.user, { displayName, workspaceId });
+      await assignUserToChannel(client, message.user, message.channel, workspaceId);
 
       const dateKey = hit.dateKey;
       const today   = todayKey();

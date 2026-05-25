@@ -33,7 +33,7 @@ function register(app) {
 
     // Now safe to do async DB reads — update the already-open modal with real content.
     try {
-      await db.ensureUser(body.user.id);
+      await db.ensureUser(body.user.id, { workspaceId: body.team?.id });
       const view = await buildOverrideModal(body.user.id);
       await client.views.update({ view_id: opened.view.id, view });
     } catch (err) {

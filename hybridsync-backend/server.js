@@ -69,8 +69,9 @@ if (slackInstaller) {
   app.get('/slack/oauth_redirect', async (req, res) => {
     await slackInstaller.handleCallback(req, res, {
       success: async (installation, _options, _req, response) => {
-        // storeInstallation has already run. Promote installer to admin.
-        await db.setUserRole(installation.user.id, 'admin');
+        // storeInstallation has already run. Promote installer to admin in
+        // the workspace they just installed into.
+        await db.setUserRole(installation.user.id, 'admin', installation.team.id);
         response.writeHead(302, { Location: `${FRONTEND_URL}?installed=true` });
         response.end();
       },

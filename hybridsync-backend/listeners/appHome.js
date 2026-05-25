@@ -14,14 +14,15 @@ async function resolveDisplayName(client, userId) {
 }
 
 function register(app) {
-  app.event('app_home_opened', ({ event, client, logger }) => {
+  app.event('app_home_opened', ({ event, context, client, logger }) => {
     if (event.tab !== 'home') return;
     // Fire-and-forget: return immediately so Bolt can dispatch concurrent
     // block_actions events (e.g., button clicks) without waiting for Firestore.
     (async () => {
       try {
+        const workspaceId = context.teamId || event.team;
         const displayName = await resolveDisplayName(client, event.user);
-        await db.ensureUser(event.user, { displayName });
+        await db.ensureUser(event.user, { displayName, workspaceId });
         await publishHome(client, event.user);
         console.log(`[UI] Published App Home for ${displayName} (${event.user})`);
       } catch (err) {

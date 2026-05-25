@@ -78,8 +78,9 @@ async function getMeetingsForDate(userId, dateKey) {
   const offlineCount = classified.filter(e => e.type === 'offline').length;
   const unknownCount = classified.filter(e => e.type === 'unknown').length;
 
-  // Cross-reference attendee emails with HybridSync users
-  const allUsers = await db.getAllUsers();
+  // Cross-reference attendee emails with HybridSync users in the same workspace.
+  const owner       = await db.getUser(userId).catch(() => null);
+  const allUsers    = await db.getAllUsers(owner?.workspaceId);
   const emailToName = {};
   for (const u of allUsers) {
     const email = await db.getGoogleEmail(u.id).catch(() => null);

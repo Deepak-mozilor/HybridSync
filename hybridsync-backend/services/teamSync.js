@@ -6,7 +6,12 @@
 
 const db = require('../db');
 
-async function syncTeamsFromChannels(slackClient) {
+async function syncTeamsFromChannels(slackClient, workspaceId) {
+  if (!workspaceId) {
+    const auth = await slackClient.auth.test().catch(() => null);
+    workspaceId = auth?.team_id || null;
+  }
+  if (!workspaceId) throw new Error('syncTeamsFromChannels: workspaceId could not be determined');
   // One bulk users.list at the top — reused across every channel iteration
   // instead of an N-call users.info loop. Filter out bots/deleted/Slackbot.
   const nameByUserId = {};
@@ -38,10 +43,11 @@ async function syncTeamsFromChannels(slackClient) {
     // in the dashboard always win because existing.managerId is checked first.
     const existing = await db.getTeam(ch.id);
     await db.upsertTeam({
-      id:        ch.id,
-      name:      ch.name,
-      anchorDays: existing?.anchorDays || [],
-      managerId:  existing?.managerId  || ch.creator || null,
+      id:          ch.id,
+      name:        ch.name,
+      anchorDays:  existing?.anchorDays || [],
+      managerId:   existing?.managerId  || ch.creator || null,
+      workspaceId,
     });
 
     let memberCount = 0;
@@ -50,7 +56,7 @@ async function syncTeamsFromChannels(slackClient) {
       for (const userId of membersResp.members) {
         const displayName = nameByUserId[userId];
         if (!displayName) continue; // bot, deleted, or not a workspace human
-        const user = await db.ensureUser(userId, { displayName });
+        const user = await db.ensureUser(userId, { displayName, workspaceId });
         await db.addUserToTeam(userId, ch.id);
         if (!user.teamId) await db.updateUserTeam(userId, ch.id); // set primary if unset
         if (!observed[userId]) observed[userId] = new Set();
@@ -68,7 +74,7 @@ async function syncTeamsFromChannels(slackClient) {
   // Catch-up cleanup: any team in DB the bot is no longer a member of → delete.
   // Covers cases where the bot was kicked while offline and we missed the live event.
   const seenChannels = new Set(memberChannels.map(c => c.id));
-  const dbTeams = await db.getAllTeams();
+  const dbTeams = await db.getAllTeams(workspaceId);
   for (const t of dbTeams) {
     if (!seenChannels.has(t.id)) {
       await db.deleteTeam(t.id);
@@ -92,7 +98,7 @@ async function syncTeamsFromChannels(slackClient) {
 
 // Auto-assign a single user to the team for the channel they just messaged in.
 // Creates the team if it doesn't exist yet. Adds membership (does not overwrite).
-async function assignUserToChannel(slackClient, userId, channelId) {
+async function assignUserToChannel(slackClient, userId, channelId, workspaceId) {
   try {
     const chResp = await slackClient.conversations.info({ channel: channelId });
     const ch     = chResp.channel;
@@ -100,10 +106,11 @@ async function assignUserToChannel(slackClient, userId, channelId) {
 
     const existing = await db.getTeam(ch.id);
     await db.upsertTeam({
-      id:        ch.id,
-      name:      ch.name,
-      anchorDays: existing?.anchorDays || [],
-      managerId:  existing?.managerId  || ch.creator || null,
+      id:          ch.id,
+      name:        ch.name,
+      anchorDays:  existing?.anchorDays || [],
+      managerId:   existing?.managerId  || ch.creator || null,
+      workspaceId,
     });
     await db.addUserToTeam(userId, ch.id);
     const user = await db.getUser(userId);

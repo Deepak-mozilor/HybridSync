@@ -539,9 +539,9 @@ async function getAllWorkspaces() {
   return data || [];
 }
 
-async function setUserRole(userId, role) {
+async function setUserRole(userId, role, workspaceId) {
   // Ensure the row exists (display_name is NOT NULL), then set role.
-  await ensureUser(userId);
+  await ensureUser(userId, { workspaceId });
   const { error } = await supabase
     .from('users').update({ role }).eq('id', userId);
   if (error) throw new Error(`setUserRole: ${error.message}`);

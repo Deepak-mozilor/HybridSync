@@ -21,7 +21,7 @@ function register(app) {
 
       await db.ensureUser(userId, { workspaceId: body.team?.id });
       await db.setStatus(userId, date, 'WFH');
-      await publishHome(client, userId);
+      await publishHome(client, userId, body.team?.id);
 
       await collapseDM(client, body.channel.id, body.message.ts,
         `✅ *Schedule updated:* You switched to *WFH 🏠* on *${date}*.`);
@@ -41,7 +41,7 @@ function register(app) {
 
       await db.ensureUser(userId, { workspaceId: body.team?.id });
       await db.setStatus(userId, date, 'Office');  // confirm the choice in DB
-      await publishHome(client, userId);            // refresh App Home
+      await publishHome(client, userId, body.team?.id);            // refresh App Home
 
       await collapseDM(client, body.channel.id, body.message.ts,
         `👍 Got it! *Staying in Office 🏢* on *${date}*. Schedule confirmed.`);

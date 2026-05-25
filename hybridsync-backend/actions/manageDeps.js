@@ -99,7 +99,7 @@ function register(app) {
 
       if (changed) {
         await db._updateDependencies(userId, edges);
-        await publishHome(client, userId);
+        await publishHome(client, userId, body.team?.id);
 
         const parts = [];
         if (addUserId && !isNaN(addScore)) parts.push(`updated <@${addUserId}> (score ${addScore}/10)`);

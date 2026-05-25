@@ -70,8 +70,8 @@ function buildConnectOAuthUrl(userId) {
   return url.toString();
 }
 
-async function buildHomeView(userId) {
-  const user       = await db.ensureUser(userId);
+async function buildHomeView(userId, workspaceId) {
+  const user       = await db.ensureUser(userId, { workspaceId });
   // Multi-team membership: union teamIds[] with legacy primary teamId.
   const teamIds    = [...new Set([...(user.teamIds || []), ...(user.teamId ? [user.teamId] : [])])];
   const userTeams  = (await Promise.all(teamIds.map(id => db.getTeam(id)))).filter(Boolean);
@@ -330,8 +330,8 @@ async function buildHomeView(userId) {
   return { type: 'home', blocks };
 }
 
-async function publishHome(client, userId) {
-  const view = await buildHomeView(userId);
+async function publishHome(client, userId, workspaceId) {
+  const view = await buildHomeView(userId, workspaceId);
   await client.views.publish({ user_id: userId, view });
 }
 

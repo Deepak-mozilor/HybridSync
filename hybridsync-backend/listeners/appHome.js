@@ -23,7 +23,7 @@ function register(app) {
         const workspaceId = context.teamId || event.team;
         const displayName = await resolveDisplayName(client, event.user);
         await db.ensureUser(event.user, { displayName, workspaceId });
-        await publishHome(client, event.user);
+        await publishHome(client, event.user, workspaceId);
         console.log(`[UI] Published App Home for ${displayName} (${event.user})`);
       } catch (err) {
         logger.error('Error publishing App Home:', err);

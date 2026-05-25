@@ -77,7 +77,7 @@ function register(app) {
       }
     }
 
-    await publishHome(client, userId);
+    await publishHome(client, userId, body.team?.id);
 
     const lines = [];
     if (applied)         lines.push(`✅ Schedule updated for ${applied} day(s).`);

@@ -190,7 +190,7 @@ function register(app) {
         if (e?.data?.error !== 'already_reacted') logger.warn('reaction failed:', e?.data?.error || e.message);
       }
 
-      await publishHome(client, message.user);
+      await publishHome(client, message.user, workspaceId);
       console.log(`[Stream] ${displayName} (${message.user}) → ${hit.status} on ${dateKey}`);
 
       if (shouldNotify(message.user, dateKey)) {

@@ -24,6 +24,9 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
+// Railway healthcheck — public, no auth, no DB hit.
+app.get('/healthz', (_req, res) => res.json({ ok: true }));
+
 // ---------------------------------------------------------------------------
 // Slack OAuth distribution — /slack/install and /slack/oauth_redirect
 // ---------------------------------------------------------------------------

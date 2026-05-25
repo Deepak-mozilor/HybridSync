@@ -71,3 +71,61 @@ CREATE TABLE IF NOT EXISTS team_members (
 );
 CREATE INDEX IF NOT EXISTS team_members_team_idx ON team_members(team_id);
 
+-- ---------------------------------------------------------------------------
+-- Multi-tenancy — workspace_id on every tenant-scoped table.
+-- Idempotent: safe to re-run on a partially-migrated DB.
+-- Backfill assumes a single existing workspace (the one set up by the install).
+-- For fresh installs the UPDATEs are no-ops because all tables are empty.
+-- ---------------------------------------------------------------------------
+
+ALTER TABLE users        ADD COLUMN IF NOT EXISTS workspace_id TEXT;
+ALTER TABLE teams        ADD COLUMN IF NOT EXISTS workspace_id TEXT;
+ALTER TABLE overrides    ADD COLUMN IF NOT EXISTS workspace_id TEXT;
+ALTER TABLE dependencies ADD COLUMN IF NOT EXISTS workspace_id TEXT;
+ALTER TABLE team_members ADD COLUMN IF NOT EXISTS workspace_id TEXT;
+
+-- Backfill from the existing single workspace, if there is exactly one.
+DO $$
+DECLARE
+  ws_count INT;
+  default_ws TEXT;
+BEGIN
+  SELECT COUNT(*) INTO ws_count FROM workspaces;
+  IF ws_count = 1 THEN
+    SELECT id INTO default_ws FROM workspaces LIMIT 1;
+    UPDATE users        SET workspace_id = default_ws WHERE workspace_id IS NULL;
+    UPDATE teams        SET workspace_id = default_ws WHERE workspace_id IS NULL;
+    UPDATE overrides    SET workspace_id = default_ws WHERE workspace_id IS NULL;
+    UPDATE dependencies SET workspace_id = default_ws WHERE workspace_id IS NULL;
+    UPDATE team_members SET workspace_id = default_ws WHERE workspace_id IS NULL;
+  ELSIF ws_count > 1 THEN
+    RAISE NOTICE 'Multiple workspaces found — skipping automatic backfill; populate workspace_id manually.';
+  END IF;
+END $$;
+
+-- Promote to NOT NULL only if every row has been populated.
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM users        WHERE workspace_id IS NULL) THEN ALTER TABLE users        ALTER COLUMN workspace_id SET NOT NULL; END IF;
+  IF NOT EXISTS (SELECT 1 FROM teams        WHERE workspace_id IS NULL) THEN ALTER TABLE teams        ALTER COLUMN workspace_id SET NOT NULL; END IF;
+  IF NOT EXISTS (SELECT 1 FROM overrides    WHERE workspace_id IS NULL) THEN ALTER TABLE overrides    ALTER COLUMN workspace_id SET NOT NULL; END IF;
+  IF NOT EXISTS (SELECT 1 FROM dependencies WHERE workspace_id IS NULL) THEN ALTER TABLE dependencies ALTER COLUMN workspace_id SET NOT NULL; END IF;
+  IF NOT EXISTS (SELECT 1 FROM team_members WHERE workspace_id IS NULL) THEN ALTER TABLE team_members ALTER COLUMN workspace_id SET NOT NULL; END IF;
+END $$;
+
+-- Foreign keys (idempotent via constraint lookup).
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'users_workspace_fk')        THEN ALTER TABLE users        ADD CONSTRAINT users_workspace_fk        FOREIGN KEY (workspace_id) REFERENCES workspaces(id) ON DELETE CASCADE; END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'teams_workspace_fk')        THEN ALTER TABLE teams        ADD CONSTRAINT teams_workspace_fk        FOREIGN KEY (workspace_id) REFERENCES workspaces(id) ON DELETE CASCADE; END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'overrides_workspace_fk')    THEN ALTER TABLE overrides    ADD CONSTRAINT overrides_workspace_fk    FOREIGN KEY (workspace_id) REFERENCES workspaces(id) ON DELETE CASCADE; END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'dependencies_workspace_fk') THEN ALTER TABLE dependencies ADD CONSTRAINT dependencies_workspace_fk FOREIGN KEY (workspace_id) REFERENCES workspaces(id) ON DELETE CASCADE; END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'team_members_workspace_fk') THEN ALTER TABLE team_members ADD CONSTRAINT team_members_workspace_fk FOREIGN KEY (workspace_id) REFERENCES workspaces(id) ON DELETE CASCADE; END IF;
+END $$;
+
+CREATE INDEX IF NOT EXISTS users_workspace_idx        ON users(workspace_id);
+CREATE INDEX IF NOT EXISTS teams_workspace_idx        ON teams(workspace_id);
+CREATE INDEX IF NOT EXISTS overrides_workspace_idx    ON overrides(workspace_id);
+CREATE INDEX IF NOT EXISTS dependencies_workspace_idx ON dependencies(workspace_id);
+CREATE INDEX IF NOT EXISTS team_members_workspace_idx ON team_members(workspace_id);
+

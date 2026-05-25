@@ -29,17 +29,52 @@ function toUser(row, teamIds = []) {
     teamIds:              teamIds,                         // all teams from team_members
     role:                 row.role,
     week:                 row.week               || {},
+    workspaceId:          row.workspace_id       || null,
     googleChannelExpiry:  row.google_channel_expiry || null,
   };
 }
 
 function toTeam(row) {
   return {
-    id:         row.id,
-    name:       row.name,
-    anchorDays: row.anchor_days || [],
-    managerId:  row.manager_id  || null,
+    id:          row.id,
+    name:        row.name,
+    anchorDays:  row.anchor_days || [],
+    managerId:   row.manager_id  || null,
+    workspaceId: row.workspace_id || null,
   };
+}
+
+// Resolves the workspace_id to use for a write. If an explicit value is given,
+// use it. Otherwise, fall back to the only installed workspace — this keeps
+// existing call sites working during the multi-tenancy migration. Once every
+// caller passes workspaceId explicitly, the fallback becomes an error path that
+// only fires if the app is misconfigured (no install) or trying to write
+// without context in a multi-workspace deployment.
+async function _resolveWorkspaceId(explicit) {
+  if (explicit) return explicit;
+  const { data, error } = await supabase.from('workspaces').select('id');
+  if (error) throw new Error(`_resolveWorkspaceId: ${error.message}`);
+  if (!data || data.length === 0) {
+    throw new Error('No workspace installed — finish OAuth install via /slack/install first.');
+  }
+  if (data.length > 1) {
+    throw new Error('Multiple workspaces installed — workspace_id must be passed explicitly.');
+  }
+  return data[0].id;
+}
+
+// Looks up the workspace_id for an existing user. Used by writes that
+// implicitly inherit workspace context from the user row (overrides,
+// dependencies). Throws if the user has no workspace_id, which would mean a
+// data-integrity bug — the schema enforces NOT NULL.
+async function _workspaceIdForUser(userId) {
+  const { data, error } = await supabase
+    .from('users').select('workspace_id').eq('id', userId).maybeSingle();
+  if (error) throw new Error(`_workspaceIdForUser: ${error.message}`);
+  if (!data?.workspace_id) {
+    throw new Error(`User ${userId} has no workspace_id — install the app for this user's workspace first.`);
+  }
+  return data.workspace_id;
 }
 
 // ---------------------------------------------------------------------------
@@ -53,14 +88,24 @@ async function seedIfEmpty() {
     return;
   }
 
+  // Need a workspace to anchor seed data to. If none installed, skip — users
+  // will be created on demand via Slack events once OAuth completes.
+  const { data: ws } = await supabase.from('workspaces').select('id').limit(1);
+  if (!ws || ws.length === 0) {
+    console.log('[DB] No workspace installed yet — skipping seed.');
+    return;
+  }
+  const workspaceId = ws[0].id;
+
   console.log('[DB] Seeding Supabase with initial data…');
 
   // Teams (may be empty — created dynamically via /api/sync-teams)
   const teamRows = Object.values(teams).map(t => ({
-    id:          t.id,
-    name:        t.name,
-    anchor_days: t.anchorDays || [],
-    manager_id:  t.managerId  || null,
+    id:           t.id,
+    name:         t.name,
+    anchor_days:  t.anchorDays || [],
+    manager_id:   t.managerId  || null,
+    workspace_id: workspaceId,
   }));
   if (teamRows.length) {
     const { error } = await supabase.from('teams').insert(teamRows);
@@ -75,6 +120,7 @@ async function seedIfEmpty() {
       team_id:      u.teamId || null,
       role:         u.role,
       week:         u.week,
+      workspace_id: workspaceId,
     }))
   );
   if (uErr) throw new Error(`seed users: ${uErr.message}`);
@@ -83,7 +129,7 @@ async function seedIfEmpty() {
   const depRows = [];
   for (const [userId, edges] of Object.entries(seedDependencies)) {
     for (const { peerId, score } of edges) {
-      depRows.push({ user_id: userId, peer_id: peerId, score });
+      depRows.push({ user_id: userId, peer_id: peerId, score, workspace_id: workspaceId });
     }
   }
   const { error: dErr } = await supabase.from('dependencies').insert(depRows);
@@ -98,7 +144,7 @@ seedIfEmpty().catch(e => console.error('[DB] Seed error:', e.message));
 // Users
 // ---------------------------------------------------------------------------
 
-async function ensureUser(userId, { displayName } = {}) {
+async function ensureUser(userId, { displayName, workspaceId } = {}) {
   const { data } = await supabase
     .from('users').select('*').eq('id', userId).maybeSingle();
 
@@ -110,13 +156,16 @@ async function ensureUser(userId, { displayName } = {}) {
     return toUser({ ...data, display_name: displayName || data.display_name }, teamIds);
   }
 
-  // New user
+  // New user — needs a workspace_id (NOT NULL). Falls back to the only
+  // installed workspace if not provided.
+  const ws = await _resolveWorkspaceId(workspaceId);
   const row = {
     id:           userId,
     display_name: displayName || userId,
     team_id:      null,
     role:         'employee',
     week:         { ...DEFAULT_WEEK },
+    workspace_id: ws,
   };
   const { error } = await supabase.from('users').insert(row);
   if (error) throw new Error(`ensureUser insert: ${error.message}`);
@@ -210,9 +259,13 @@ async function setStatus(userId, dateKey, status) {
     }
   }
 
+  const workspaceId = await _workspaceIdForUser(userId);
   const { error } = await supabase
     .from('overrides')
-    .upsert({ user_id: userId, date_key: dateKey, status }, { onConflict: 'user_id,date_key' });
+    .upsert(
+      { user_id: userId, date_key: dateKey, status, workspace_id: workspaceId },
+      { onConflict: 'user_id,date_key' },
+    );
   if (error) throw new Error(`setStatus: ${error.message}`);
   if (_afterSetStatus) _afterSetStatus(userId, status, dateKey).catch(() => {});
   return { userId, dateKey, status };
@@ -328,11 +381,13 @@ async function deleteTeam(teamId) {
 }
 
 async function upsertTeam(teamData) {
+  const workspaceId = await _resolveWorkspaceId(teamData.workspaceId);
   const row = {
-    id:          teamData.id,
-    name:        teamData.name,
-    anchor_days: teamData.anchorDays || [],
-    manager_id:  teamData.managerId  || null,
+    id:           teamData.id,
+    name:         teamData.name,
+    anchor_days:  teamData.anchorDays || [],
+    manager_id:   teamData.managerId  || null,
+    workspace_id: workspaceId,
   };
   const { data, error } = await supabase
     .from('teams')
@@ -352,9 +407,18 @@ async function updateUserTeam(userId, teamId) {
 }
 
 async function addUserToTeam(userId, teamId) {
+  // Inherit workspace_id from the team row to keep tenant isolation enforceable.
+  const { data: teamRow, error: tErr } = await supabase
+    .from('teams').select('workspace_id').eq('id', teamId).maybeSingle();
+  if (tErr) throw new Error(`addUserToTeam (team lookup): ${tErr.message}`);
+  if (!teamRow?.workspace_id) throw new Error(`addUserToTeam: team ${teamId} has no workspace_id`);
+
   const { error } = await supabase
     .from('team_members')
-    .upsert({ user_id: userId, team_id: teamId }, { onConflict: 'user_id,team_id' });
+    .upsert(
+      { user_id: userId, team_id: teamId, workspace_id: teamRow.workspace_id },
+      { onConflict: 'user_id,team_id' },
+    );
   if (error) throw new Error(`addUserToTeam: ${error.message}`);
 }
 
@@ -413,11 +477,19 @@ async function getAllManualDependencies() {
 }
 
 async function _updateDependencies(userId, edges) {
-  // Replace all edges for this user atomically
+  // Replace all edges for this user atomically. workspace_id is inherited from
+  // the user row so dependency rows stay consistent with their owner.
   await supabase.from('dependencies').delete().eq('user_id', userId);
   if (edges.length === 0) return;
+  const workspaceId = await _workspaceIdForUser(userId);
   const { error } = await supabase.from('dependencies').insert(
-    edges.map(e => ({ user_id: userId, peer_id: e.peerId, score: e.score, is_manual: e.isManual || false }))
+    edges.map(e => ({
+      user_id:      userId,
+      peer_id:      e.peerId,
+      score:        e.score,
+      is_manual:    e.isManual || false,
+      workspace_id: workspaceId,
+    }))
   );
   if (error) throw new Error(`_updateDependencies: ${error.message}`);
 }

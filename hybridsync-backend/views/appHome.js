@@ -290,18 +290,34 @@ async function buildHomeView(userId, workspaceId) {
           text: {
             type: 'mrkdwn',
             text: googleConnected
-              ? '✅ *Connected* — your meeting load is visible to HybridSync and used when coordinating schedules.'
+              ? `✅ *Connected*${user.googleChannelExpiry ? '' : ''} — your meeting load is visible to HybridSync and used when coordinating schedules.`
               : '📆 *Not connected* — link Google Calendar so HybridSync can factor your meeting load into schedule coordination.',
-          },
-          accessory: {
-            type:      'button',
-            text:      { type: 'plain_text', text: googleConnected ? '🔄 Reconnect' : '📅 Connect Google Calendar', emoji: true },
-            style:     googleConnected ? undefined : 'primary',
-            url:       googleAuthUrl,
-            action_id: 'connect_google_calendar',
           },
         }
       : ctx('_Google Calendar is not configured. Ask your admin to set `GOOGLE_CLIENT_ID`._'),
+    googleAuthUrl ? {
+      type: 'actions',
+      elements: googleConnected
+        ? [
+            { type: 'button', text: { type: 'plain_text', text: '🔄 Reconnect', emoji: true }, url: googleAuthUrl, action_id: 'connect_google_calendar' },
+            {
+              type:      'button',
+              text:      { type: 'plain_text', text: 'Disconnect', emoji: true },
+              style:     'danger',
+              action_id: 'disconnect_google',
+              confirm: {
+                title:   { type: 'plain_text', text: 'Disconnect Google Calendar?' },
+                text:    { type: 'mrkdwn', text: 'HybridSync will lose access to your meeting data and you\'ll need to reconnect to use meeting-aware features again.' },
+                confirm: { type: 'plain_text', text: 'Disconnect' },
+                deny:    { type: 'plain_text', text: 'Keep connected' },
+                style:   'danger',
+              },
+            },
+          ]
+        : [
+            { type: 'button', text: { type: 'plain_text', text: '📅 Connect Google Calendar', emoji: true }, style: 'primary', url: googleAuthUrl, action_id: 'connect_google_calendar' },
+          ],
+    } : null,
     divider(),
 
     md('*🔗 Slack Status Sync*'),
@@ -315,17 +331,31 @@ async function buildHomeView(userId, workspaceId) {
               ? '🔌 *Not connected* — link your account so HybridSync can update your Slack status emoji automatically.'
               : '_Slack status sync is not configured. Ask your admin to set `SLACK_CLIENT_ID`._'),
       },
-      ...(oauthUrl ? {
-        accessory: {
-          type:      'button',
-          text:      { type: 'plain_text', text: isConnected ? '🔄 Reconnect' : '🔗 Connect Slack Status', emoji: true },
-          style:     isConnected ? undefined : 'primary',
-          url:       oauthUrl,
-          action_id: 'connect_slack_status',
-        },
-      } : {}),
     },
-  ];
+    oauthUrl ? {
+      type: 'actions',
+      elements: isConnected
+        ? [
+            { type: 'button', text: { type: 'plain_text', text: '🔄 Reconnect', emoji: true }, url: oauthUrl, action_id: 'connect_slack_status' },
+            {
+              type:      'button',
+              text:      { type: 'plain_text', text: 'Disconnect', emoji: true },
+              style:     'danger',
+              action_id: 'disconnect_slack_status',
+              confirm: {
+                title:   { type: 'plain_text', text: 'Disconnect Slack Status Sync?' },
+                text:    { type: 'mrkdwn', text: 'HybridSync will no longer update your Slack profile emoji to match your hybrid-work status.' },
+                confirm: { type: 'plain_text', text: 'Disconnect' },
+                deny:    { type: 'plain_text', text: 'Keep connected' },
+                style:   'danger',
+              },
+            },
+          ]
+        : [
+            { type: 'button', text: { type: 'plain_text', text: '🔗 Connect Slack Status', emoji: true }, style: 'primary', url: oauthUrl, action_id: 'connect_slack_status' },
+          ],
+    } : null,
+  ].filter(Boolean);
 
   return { type: 'home', blocks };
 }

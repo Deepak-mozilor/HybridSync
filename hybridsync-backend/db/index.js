@@ -325,6 +325,27 @@ async function getGoogleEmail(userId) {
   return data?.google_email || null;
 }
 
+async function clearGoogleConnection(userId) {
+  const { error } = await supabase
+    .from('users')
+    .update({
+      google_tokens:         null,
+      google_email:          null,
+      google_channel_id:     null,
+      google_channel_expiry: null,
+    })
+    .eq('id', userId);
+  if (error) throw new Error(`clearGoogleConnection: ${error.message}`);
+}
+
+async function clearSlackUserToken(userId) {
+  const { error } = await supabase
+    .from('users')
+    .update({ slack_user_token: null })
+    .eq('id', userId);
+  if (error) throw new Error(`clearSlackUserToken: ${error.message}`);
+}
+
 async function saveGoogleChannel(userId, channelId, expiry) {
   const { error } = await supabase
     .from('users')
@@ -596,6 +617,8 @@ module.exports = {
   saveGoogleEmail,
   getGoogleEmail,
   saveGoogleChannel,
+  clearGoogleConnection,
+  clearSlackUserToken,
   getUserByChannelId,
   getAllGoogleConnectedUsers,
   getTeam,

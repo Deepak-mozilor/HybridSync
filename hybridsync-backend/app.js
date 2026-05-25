@@ -11,9 +11,10 @@ const streamListener      = require('./listeners/stream');
 const appHomeListener     = require('./listeners/appHome');
 const chatbotListener     = require('./listeners/chatbot');
 const slackStatusListener = require('./listeners/slackStatusSync');
-const overrideActions   = require('./actions/override');
+const overrideActions    = require('./actions/override');
 const negotiationActions = require('./actions/negotiation');
 const manageDepsActions  = require('./actions/manageDeps');
+const disconnectActions  = require('./actions/disconnect');
 const batch             = require('./ai/batch');
 const apiServer         = require('./server');
 const { getUserEmail }  = require('./services/googleCalendar');
@@ -80,6 +81,9 @@ negotiationActions.register(app);
 
 // Phase 4B — Manage Dependencies modal
 manageDepsActions.register(app);
+
+// Phase 5 — Disconnect buttons for Google Calendar + Slack Status Sync
+disconnectActions.register(app);
 
 async function backfillGoogleEmails() {
   const users = await db.getAllGoogleConnectedUsers().catch(() => []);

@@ -129,3 +129,18 @@ CREATE INDEX IF NOT EXISTS overrides_workspace_idx    ON overrides(workspace_id)
 CREATE INDEX IF NOT EXISTS dependencies_workspace_idx ON dependencies(workspace_id);
 CREATE INDEX IF NOT EXISTS team_members_workspace_idx ON team_members(workspace_id);
 
+-- ---------------------------------------------------------------------------
+-- Row-Level Security — defence in depth.
+-- The backend uses the Supabase service_role key which bypasses RLS, so this
+-- doesn't affect normal operation. But if the anon/authenticated keys are
+-- ever pointed at these tables (mis-configuration, leaked key, future
+-- PostgREST exposure), RLS with no permissive policies denies everything.
+-- ---------------------------------------------------------------------------
+
+ALTER TABLE users        ENABLE ROW LEVEL SECURITY;
+ALTER TABLE teams        ENABLE ROW LEVEL SECURITY;
+ALTER TABLE overrides    ENABLE ROW LEVEL SECURITY;
+ALTER TABLE dependencies ENABLE ROW LEVEL SECURITY;
+ALTER TABLE team_members ENABLE ROW LEVEL SECURITY;
+ALTER TABLE workspaces   ENABLE ROW LEVEL SECURITY;
+

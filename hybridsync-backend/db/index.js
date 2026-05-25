@@ -472,6 +472,23 @@ async function getDependencyGraph(userId) {
   return (data || []).map(r => ({ peerId: r.peer_id, score: r.score, isManual: r.is_manual }));
 }
 
+// Bulk fetch every directional edge in a workspace in one query.
+// Replaces the N+1 pattern of looping getDependencyGraph(userId) per user.
+async function getWorkspaceDependencies(workspaceId) {
+  if (!workspaceId) throw new Error('getWorkspaceDependencies: workspaceId is required');
+  const { data, error } = await supabase
+    .from('dependencies')
+    .select('user_id, peer_id, score, is_manual')
+    .eq('workspace_id', workspaceId);
+  if (error) throw new Error(`getWorkspaceDependencies: ${error.message}`);
+  return (data || []).map(r => ({
+    userId:   r.user_id,
+    peerId:   r.peer_id,
+    score:    r.score,
+    isManual: r.is_manual,
+  }));
+}
+
 async function getAllManualDependencies(workspaceId) {
   const q = supabase
     .from('dependencies')
@@ -593,6 +610,7 @@ module.exports = {
   isTeamManager,
   findUserByName,
   getDependencyGraph,
+  getWorkspaceDependencies,
   getAllManualDependencies,
   _updateDependencies,
   upsertWorkspace,

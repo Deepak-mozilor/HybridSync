@@ -255,15 +255,14 @@ app.get('/api/graph', requireAuth, async (req, res) => {
   });
 
   // Collect every directional edge first, then collapse each (A,B) pair into a
-  // single graph edge carrying both directional scores.
+  // single graph edge carrying both directional scores. One workspace-scoped
+  // query replaces what used to be N per-user queries.
   const nameById = Object.fromEntries(scoped.map(u => [u.id, u.displayName]));
   const directional = new Map(); // "src->tgt" -> score
-  for (const u of scoped) {
-    const deps = await db.getDependencyGraph(u.id);
-    for (const { peerId, score } of deps) {
-      if (!allowed.has(peerId)) continue; // hide cross-team peers for managers
-      directional.set(`${u.id}->${peerId}`, score);
-    }
+  const allEdges = await db.getWorkspaceDependencies(req.auth.workspaceId);
+  for (const { userId, peerId, score } of allEdges) {
+    if (!allowed.has(userId) || !allowed.has(peerId)) continue; // manager scoping
+    directional.set(`${userId}->${peerId}`, score);
   }
 
   const edges = [];

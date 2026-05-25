@@ -117,14 +117,22 @@ function decorateUser(u, map) {
   return { ...u, teamIds, teamNames, teamName: map[u.teamId] || u.teamId };
 }
 
-// Filter a list of users to those visible to the caller. Admin sees all,
-// manager sees only users in any team they manage. Accepts both teamIds[]
-// (new) and teamId (legacy JWT issued before multi-team) for back-compat.
+// Filter a list of users to those visible to the caller.
+//   - Admin:   all users in the caller's workspace.
+//   - Manager: users in the caller's workspace AND in any team they manage.
+// Accepts legacy `teamId` on the JWT for back-compat with sessions issued
+// before multi-team was added; legacy sessions without a workspaceId fall back
+// to the team-only filter so they keep working until they expire.
 function scopeUsersForAuth(users, auth) {
-  if (auth.role === 'admin') return users;
+  const sameWorkspace = u =>
+    !auth.workspaceId || !u.workspaceId || u.workspaceId === auth.workspaceId;
+
+  if (auth.role === 'admin') return users.filter(sameWorkspace);
+
   const ids = auth.teamIds && auth.teamIds.length ? auth.teamIds : (auth.teamId ? [auth.teamId] : []);
   const allowed = new Set(ids);
   return users.filter(u => {
+    if (!sameWorkspace(u)) return false;
     if (u.teamId && allowed.has(u.teamId)) return true;
     if (u.teamIds && u.teamIds.some(id => allowed.has(id))) return true;
     return false;
@@ -167,6 +175,7 @@ app.get('/api/auth/slack/callback', async (req, res) => {
     const payload    = JSON.parse(Buffer.from(data.id_token.split('.')[1], 'base64url').toString());
     const slackUserId = payload.sub;
     const name        = payload.name || payload['https://slack.com/user_name'] || slackUserId;
+    const tokenTeamId = payload['https://slack.com/team_id'] || null;
 
     // Determine dashboard role — admins are DB-driven (set on Slack install);
     // managers are derived from teams.manager_id (can manage multiple teams).
@@ -188,7 +197,16 @@ app.get('/api/auth/slack/callback', async (req, res) => {
       }
     }
 
-    const token  = jwt.sign({ role, teamIds, name: displayName }, JWT_SECRET, { expiresIn: '12h' });
+    // Resolve workspaceId for the session: prefer the user's stored row, fall
+    // back to the team_id Slack put in the OpenID token. If neither is set the
+    // caller can't be scoped safely, so refuse.
+    const userRow      = await db.getUser(slackUserId);
+    const workspaceId  = userRow?.workspaceId || tokenTeamId;
+    if (!workspaceId) {
+      return res.redirect(`${FRONTEND_URL}?auth_error=unauthorized`);
+    }
+
+    const token  = jwt.sign({ role, teamIds, name: displayName, workspaceId }, JWT_SECRET, { expiresIn: '12h' });
     const params = new URLSearchParams({ token, role, name: displayName });
     if (teamIds[0]) params.set('teamId', teamIds[0]); // first team for default focus
     res.redirect(`${FRONTEND_URL}?${params}`);

@@ -216,21 +216,9 @@ app.get('/api/auth/slack/callback', async (req, res) => {
   }
 });
 
-// GET /api/auth/teams — public: list of teams for the login page dropdown
-app.get('/api/auth/teams', async (req, res) => {
-  const users   = await db.getAllUsers();
-  const teamIds = new Set();
-  for (const u of users) {
-    if (u.teamId) teamIds.add(u.teamId);
-    for (const id of u.teamIds || []) teamIds.add(id);
-  }
-  const teams = (await Promise.all([...teamIds].map(id => db.getTeam(id)))).filter(Boolean);
-  res.json(teams.map(t => ({ id: t.id, name: t.name })));
-});
-
 // GET /api/users — users visible to the caller (admin: all, manager: own teams)
 app.get('/api/users', requireAuth, async (req, res) => {
-  const allUsers = await db.getAllUsers();
+  const allUsers = await db.getAllUsers(req.auth.workspaceId);
   const scoped   = scopeUsersForAuth(allUsers, req.auth);
   const map      = await teamNameMap(scoped);
   res.json(scoped.map(u => decorateUser(u, map)));
@@ -240,7 +228,7 @@ app.get('/api/users', requireAuth, async (req, res) => {
 // Admin: full company. Manager: only users in any team they manage, with
 // edges restricted to those between two scoped users.
 app.get('/api/graph', requireAuth, async (req, res) => {
-  const allUsers = await db.getAllUsers();
+  const allUsers = await db.getAllUsers(req.auth.workspaceId);
   const scoped   = scopeUsersForAuth(allUsers, req.auth);
   const allowed  = new Set(scoped.map(u => u.id));
 
@@ -308,15 +296,21 @@ app.get('/api/graph', requireAuth, async (req, res) => {
   res.json({ nodes, edges });
 });
 
-// GET /api/graph/:userId — dependency edges for one user
+// GET /api/graph/:userId — dependency edges for one user. Refuses if the user
+// is in a different workspace from the caller.
 app.get('/api/graph/:userId', requireAuth, async (req, res) => {
+  const target = await db.getUser(req.params.userId);
+  if (!target) return res.status(404).json({ error: 'User not found' });
+  if (req.auth.workspaceId && target.workspaceId && target.workspaceId !== req.auth.workspaceId) {
+    return res.status(404).json({ error: 'User not found' });
+  }
   const edges = await db.getDependencyGraph(req.params.userId);
   res.json(edges);
 });
 
 // GET /api/schedule/week — visible users' statuses for the current week
 app.get('/api/schedule/week', requireAuth, async (req, res) => {
-  const allUsers = await db.getAllUsers();
+  const allUsers = await db.getAllUsers(req.auth.workspaceId);
   const scoped   = scopeUsersForAuth(allUsers, req.auth);
   const dates    = upcomingWorkDays(5);
   const dateKeys = dates.map(d => d.dateKey);
@@ -332,31 +326,35 @@ app.get('/api/schedule/week', requireAuth, async (req, res) => {
   res.json({ dates, rows });
 });
 
-// GET /api/teams — teams visible to caller. Admin: all with any member.
-// Manager: only the team(s) they manage.
+// GET /api/teams — teams visible to caller. Admin: all in workspace.
+// Manager: only the team(s) they manage in this workspace.
 app.get('/api/teams', requireAuth, async (req, res) => {
   if (req.auth.role === 'manager') {
     const ids = req.auth.teamIds && req.auth.teamIds.length
       ? req.auth.teamIds
       : (req.auth.teamId ? [req.auth.teamId] : []);
-    const teams = (await Promise.all(ids.map(id => db.getTeam(id)))).filter(Boolean);
+    const teams = (await Promise.all(ids.map(id => db.getTeam(id)))).filter(t =>
+      t && (!req.auth.workspaceId || !t.workspaceId || t.workspaceId === req.auth.workspaceId)
+    );
     return res.json(teams);
   }
-  const users   = await db.getAllUsers();
-  const teamIds = new Set();
-  for (const u of users) {
-    if (u.teamId) teamIds.add(u.teamId);
-    for (const id of u.teamIds || []) teamIds.add(id);
-  }
-  const teams = await Promise.all([...teamIds].map(id => db.getTeam(id)));
-  res.json(teams.filter(Boolean));
+  const teams = await db.getAllTeams(req.auth.workspaceId);
+  res.json(teams);
 });
+
+// Helper — refuses if the team doesn't belong to the caller's workspace.
+async function getTeamScoped(teamId, auth) {
+  const team = await db.getTeam(teamId);
+  if (!team) return null;
+  if (auth.workspaceId && team.workspaceId && team.workspaceId !== auth.workspaceId) return null;
+  return team;
+}
 
 // POST /api/teams/:teamId/manager — set manager { managerId: 'U...' }
 app.post('/api/teams/:teamId/manager', requireAuth, async (req, res) => {
   const { managerId } = req.body;
   if (!managerId) return res.status(400).json({ error: 'managerId required' });
-  const team = await db.getTeam(req.params.teamId);
+  const team = await getTeamScoped(req.params.teamId, req.auth);
   if (!team) return res.status(404).json({ error: 'Team not found' });
   const updated = await db.upsertTeam({ ...team, managerId });
   res.json(updated);
@@ -367,7 +365,7 @@ app.post('/api/teams/:teamId/anchor', requireAuth, async (req, res) => {
   const { anchorDays } = req.body;
   if (!Array.isArray(anchorDays)) return res.status(400).json({ error: 'anchorDays must be an array' });
 
-  const team = await db.getTeam(req.params.teamId);
+  const team = await getTeamScoped(req.params.teamId, req.auth);
   if (!team) return res.status(404).json({ error: 'Team not found' });
 
   const updated = await db.upsertTeam({ ...team, anchorDays });
@@ -491,12 +489,16 @@ app.post('/api/google/webhook', async (req, res) => {
     if (lastDm && Date.now() - lastDm < WFH_DM_COOLDOWN_MS) return;
     wfhDmCooldown.set(user.id, Date.now());
 
-    const workspaces = await db.getAllWorkspaces();
-    if (!workspaces.length) {
-      console.warn('[Google Webhook] No workspace installed — cannot DM');
+    if (!user.workspaceId) {
+      console.warn('[Google Webhook] User has no workspace_id — cannot DM');
       return;
     }
-    const client = new WebClient(workspaces[0].bot_token);
+    const ws = await db.getWorkspace(user.workspaceId);
+    if (!ws) {
+      console.warn(`[Google Webhook] No workspace ${user.workspaceId} installed — cannot DM`);
+      return;
+    }
+    const client = new WebClient(ws.bot_token);
     await client.chat.postMessage({
       channel: user.id,
       text: `🔴 *Meeting load update:* You now have *${load.count} meetings* today (${load.totalMinutes} min total — ${load.onlineCount} online, ${load.offlineCount} offline). Most can be attended remotely — consider switching to *WFH 🏠*.`,
@@ -507,14 +509,20 @@ app.post('/api/google/webhook', async (req, res) => {
   }
 });
 
+// Builds a Slack WebClient scoped to the caller's workspace.
+async function callerWorkspaceClient(auth) {
+  if (!auth.workspaceId) return null;
+  const ws = await db.getWorkspace(auth.workspaceId);
+  return ws ? new WebClient(ws.bot_token) : null;
+}
+
 // POST /api/recalculate-deps — rebuild dependency graph from last 30 days of Slack interactions
 app.post('/api/recalculate-deps', requireAuth, async (req, res) => {
   try {
-    const workspaces = await db.getAllWorkspaces();
-    if (!workspaces.length) return res.status(503).json({ error: 'No Slack workspace installed' });
-    const client = new WebClient(workspaces[0].bot_token);
+    const client = await callerWorkspaceClient(req.auth);
+    if (!client) return res.status(503).json({ error: 'No Slack workspace installed' });
     const { runWeeklyMapping } = require('./ai/batch');
-    await runWeeklyMapping(client);
+    await runWeeklyMapping(client, req.auth.workspaceId);
     res.json({ ok: true });
   } catch (e) {
     console.error('[Recalc] Error:', e);
@@ -525,10 +533,9 @@ app.post('/api/recalculate-deps', requireAuth, async (req, res) => {
 // POST /api/sync-teams — pull all channels the bot is in and create/update teams
 app.post('/api/sync-teams', requireAuth, async (req, res) => {
   try {
-    const workspaces = await db.getAllWorkspaces();
-    if (!workspaces.length) return res.status(503).json({ error: 'No Slack workspace installed' });
-    const client = new WebClient(workspaces[0].bot_token);
-    const results = await syncTeamsFromChannels(client);
+    const client = await callerWorkspaceClient(req.auth);
+    if (!client) return res.status(503).json({ error: 'No Slack workspace installed' });
+    const results = await syncTeamsFromChannels(client, req.auth.workspaceId);
     res.json({ synced: results.length, results });
   } catch (e) {
     console.error('[SyncTeams] Error:', e);

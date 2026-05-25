@@ -22,22 +22,6 @@ async function authedFetch(url, opts = {}) {
   return res;
 }
 
-const BYPASS = { 'ngrok-skip-browser-warning': '1' };
-
-export async function fetchLoginTeams() {
-  return (await fetch(`${BASE}/auth/teams`, { headers: BYPASS })).json();
-}
-export async function login(role, password, teamId) {
-  const res = await fetch(`${BASE}/auth/login`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', ...BYPASS },
-    body: JSON.stringify({ role, password, teamId }),
-  });
-  const data = await res.json();
-  if (!res.ok) throw new Error(data.error || 'Login failed');
-  return data;
-}
-
 export async function fetchUsers()       { return (await authedFetch(`${BASE}/users`)).json(); }
 export async function fetchGraph()       { return (await authedFetch(`${BASE}/graph`)).json(); }
 export async function fetchWeekSchedule(){ return (await authedFetch(`${BASE}/schedule/week`)).json(); }

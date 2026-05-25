@@ -181,11 +181,14 @@ async function getUser(userId) {
   return toUser(data, teamIds);
 }
 
-async function getAllUsers() {
-  const [usersRes, membersRes] = await Promise.all([
-    supabase.from('users').select('*'),
-    supabase.from('team_members').select('user_id, team_id'),
-  ]);
+async function getAllUsers(workspaceId) {
+  const usersQ   = supabase.from('users').select('*');
+  const membersQ = supabase.from('team_members').select('user_id, team_id');
+  if (workspaceId) {
+    usersQ.eq('workspace_id', workspaceId);
+    membersQ.eq('workspace_id', workspaceId);
+  }
+  const [usersRes, membersRes] = await Promise.all([usersQ, membersQ]);
   if (usersRes.error) throw new Error(`getAllUsers: ${usersRes.error.message}`);
   if (membersRes.error) throw new Error(`getAllUsers (memberships): ${membersRes.error.message}`);
 
@@ -358,15 +361,18 @@ async function getTeam(teamId) {
   return data ? toTeam(data) : null;
 }
 
-async function getAllTeams() {
-  const { data, error } = await supabase.from('teams').select('*');
+async function getAllTeams(workspaceId) {
+  const q = supabase.from('teams').select('*');
+  if (workspaceId) q.eq('workspace_id', workspaceId);
+  const { data, error } = await q;
   if (error) throw new Error(`getAllTeams: ${error.message}`);
   return (data || []).map(toTeam);
 }
 
-async function getTeamsManagedBy(userId) {
-  const { data, error } = await supabase
-    .from('teams').select('*').eq('manager_id', userId);
+async function getTeamsManagedBy(userId, workspaceId) {
+  const q = supabase.from('teams').select('*').eq('manager_id', userId);
+  if (workspaceId) q.eq('workspace_id', workspaceId);
+  const { data, error } = await q;
   if (error) throw new Error(`getTeamsManagedBy: ${error.message}`);
   return (data || []).map(toTeam);
 }
@@ -449,13 +455,12 @@ async function isTeamManager(userId) {
 // Dependencies
 // ---------------------------------------------------------------------------
 
-async function findUserByName(query) {
-  const { data, error } = await supabase
-    .from('users')
-    .select('*')
-    .ilike('display_name', `%${query}%`);
+async function findUserByName(query, workspaceId) {
+  const q = supabase.from('users').select('*').ilike('display_name', `%${query}%`);
+  if (workspaceId) q.eq('workspace_id', workspaceId);
+  const { data, error } = await q;
   if (error) throw new Error(`findUserByName: ${error.message}`);
-  return (data || []).map(toUser);
+  return (data || []).map(row => toUser(row));
 }
 
 async function getDependencyGraph(userId) {
@@ -467,11 +472,13 @@ async function getDependencyGraph(userId) {
   return (data || []).map(r => ({ peerId: r.peer_id, score: r.score, isManual: r.is_manual }));
 }
 
-async function getAllManualDependencies() {
-  const { data, error } = await supabase
+async function getAllManualDependencies(workspaceId) {
+  const q = supabase
     .from('dependencies')
     .select('user_id, peer_id, score')
     .eq('is_manual', true);
+  if (workspaceId) q.eq('workspace_id', workspaceId);
+  const { data, error } = await q;
   if (error) throw new Error(`getAllManualDependencies: ${error.message}`);
   return data || [];
 }

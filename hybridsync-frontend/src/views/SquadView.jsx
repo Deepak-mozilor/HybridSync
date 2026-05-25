@@ -32,8 +32,6 @@ export default function SquadView({ focusTeam }) {
 
   useEffect(() => {
     load();
-    const id = setInterval(() => load(), 30_000);
-    return () => clearInterval(id);
   }, [load]);
 
   if (error) return <div style={{ color: '#ef4444', padding: 20 }}>{error}</div>;

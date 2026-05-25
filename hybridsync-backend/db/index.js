@@ -486,16 +486,24 @@ async function getAllManualDependencies(workspaceId) {
 async function _updateDependencies(userId, edges) {
   // Replace all edges for this user atomically. workspace_id is inherited from
   // the user row so dependency rows stay consistent with their owner.
+  // If the user isn't in the DB (e.g., AI returned a Slack ID we never
+  // registered) we skip silently — the caller should pre-filter, but this
+  // backstop prevents one stray row from killing the whole batch.
+  const { data: userRow } = await supabase
+    .from('users').select('workspace_id').eq('id', userId).maybeSingle();
+  if (!userRow?.workspace_id) {
+    console.warn(`[_updateDependencies] Skipping unknown user ${userId}`);
+    return;
+  }
   await supabase.from('dependencies').delete().eq('user_id', userId);
   if (edges.length === 0) return;
-  const workspaceId = await _workspaceIdForUser(userId);
   const { error } = await supabase.from('dependencies').insert(
     edges.map(e => ({
       user_id:      userId,
       peer_id:      e.peerId,
       score:        e.score,
       is_manual:    e.isManual || false,
-      workspace_id: workspaceId,
+      workspace_id: userRow.workspace_id,
     }))
   );
   if (error) throw new Error(`_updateDependencies: ${error.message}`);

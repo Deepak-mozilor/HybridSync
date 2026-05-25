@@ -133,9 +133,22 @@ async function runWeeklyMapping(slackClient, workspaceId) {
 
   // Use real Slack interactions when a client is provided; fall back to the
   // simulated feed so the function still works standalone in tests.
-  const interactions = slackClient
+  const rawInteractions = slackClient
     ? await fetchSlackInteractions(slackClient)
     : await getSimulatedInteractions();
+
+  // Slack channel history can include people who haven't been added to
+  // HybridSync yet (messaged in a channel but never opened App Home). Drop
+  // any interaction involving a user not in this workspace's DB before
+  // sending to the AI — otherwise we'd compute scores for ghosts.
+  const knownUserIds = new Set((await db.getAllUsers(workspaceId)).map(u => u.id));
+  const interactions = rawInteractions.filter(
+    i => knownUserIds.has(i.userA) && knownUserIds.has(i.userB),
+  );
+  const dropped = rawInteractions.length - interactions.length;
+  if (dropped > 0) {
+    console.log(`[WeeklyMapping] Skipped ${dropped} interaction row(s) involving users not in workspace ${workspaceId}.`);
+  }
 
   if (interactions.length === 0) {
     console.log('[WeeklyMapping] No interaction data — skipped.');

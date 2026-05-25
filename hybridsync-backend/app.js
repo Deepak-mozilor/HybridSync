@@ -1,6 +1,5 @@
 require('dotenv').config();
 const { App } = require('@slack/bolt');
-const { WebClient } = require('@slack/web-api');
 const db = require('./db');
 const slackStatus = require('./services/slackStatus');
 
@@ -53,31 +52,6 @@ const app = new App({
   // a separate port that Railway doesn't expose publicly.
 });
 
-// One-time migration for the legacy single-workspace install (HR_SLACK_IDS +
-// static SLACK_BOT_TOKEN). Idempotent: short-circuits once the workspace row
-// exists, so it's safe to leave in place permanently.
-async function bootstrapLegacyInstall() {
-  if (!process.env.SLACK_BOT_TOKEN) return;
-  const client = new WebClient(process.env.SLACK_BOT_TOKEN);
-  const auth   = await client.auth.test().catch(() => null);
-  if (!auth?.team_id) return;
-  if (await db.getWorkspace(auth.team_id)) return; // already bootstrapped
-
-  const installation = {
-    team: { id: auth.team_id, name: auth.team },
-    bot:  { token: process.env.SLACK_BOT_TOKEN, userId: auth.user_id, id: auth.bot_id },
-    user: { id: auth.user_id },
-    isEnterpriseInstall: false,
-    tokenType: 'bot',
-  };
-  await db.upsertWorkspace(installation);
-
-  const hrIds = (process.env.HR_SLACK_IDS || '').split(',').map(s => s.trim()).filter(Boolean);
-  for (const id of hrIds) await db.setUserRole(id, 'admin');
-
-  console.log(`[Bootstrap] Migrated legacy workspace ${auth.team_id} with ${hrIds.length} admin(s)`);
-}
-
 // Phase 2A — The Stream (deterministic, NO AI)
 streamListener.register(app);
 
@@ -115,7 +89,6 @@ async function backfillGoogleEmails() {
 }
 
 (async () => {
-  await bootstrapLegacyInstall().catch(e => console.error('[Bootstrap] Error:', e.message));
   await app.start();
   console.log('⚡️ HybridSync Bolt app is running in Socket Mode.');
 

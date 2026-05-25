@@ -240,11 +240,10 @@ Use userId = the row's first user (the dependent) and peerId = the row's second 
   }
 }
 
-// Fallback used when no slackClient is available (unit tests, manual triggers)
+// Fallback used when no slackClient is available (unit tests, manual triggers).
+// Empty by default — the caller short-circuits on no interactions.
 async function getSimulatedInteractions() {
-  return [
-    { userA: 'U0B3PJ1QP1B', userB: 'U0B3WJ5RQ3W', messages: 87, replies: 45, reactions: 23 },
-  ];
+  return [];
 }
 
 // ---------------------------------------------------------------------------

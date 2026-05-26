@@ -21,40 +21,30 @@ An AI-powered hybrid work scheduling assistant that lives inside Slack. HybridSy
 ```
 hybridsync-backend/          Node.js + Slack Bolt SDK (Socket Mode)
 ├── listeners/
-│   ├── stream.js            Channel messages → Haiku classifier → DB + Slack sync
+│   ├── stream.js            Channel messages → AI status classification → DB + Slack sync
 │   ├── appHome.js           App Home open event → publish personalized view
-│   ├── chatbot.js           DM chatbot listener (conversation history per user)
-│   └── slackStatusSync.js   Detect external Slack profile changes (don't overwrite custom)
+│   └── chatbot.js           DM chatbot with conversation history
 ├── views/
-│   ├── appHome.js           Block Kit App Home builder — runs in two Promise.all batches
+│   ├── appHome.js           Block Kit App Home builder (schedule, best collab day, collaborators)
 │   ├── overrideModal.js     Edit schedule modal (Mon–Fri × WFH/Office/Sick/Leave)
 │   └── manageDepsModal.js   Add/remove/score collaborators modal
 ├── actions/
 │   ├── override.js          Override modal submit → DB → App Home refresh
 │   ├── negotiation.js       DM button responses (Switch WFH / Stay Office)
-│   ├── manageDeps.js        Manage dependencies modal
-│   └── disconnect.js        Disconnect Google Calendar / Slack Status Sync buttons
+│   └── manageDeps.js        Manage dependencies modal
 ├── ai/
-│   ├── orchestrator.js      Claude Opus ReAct loop — dependency analysis + coordination
-│   ├── chatbot.js           Claude agent with 6 tools for DM schedule queries
-│   ├── provider.js          Anthropic ↔ Groq abstraction with auto-fallback + token logging
-│   └── batch.js             Cron jobs — weekly mapping (Sun 2AM UTC), daily status sync
-│                            (Mon-Fri 8AM IST), Google channel renewal (daily 3AM UTC)
+│   ├── orchestrator.js      Claude Opus ReAct loop — dependency analysis + schedule coordination
+│   ├── chatbot.js           Claude agent with 4 tools for DM schedule queries
+│   ├── provider.js          Anthropic/Groq abstraction with tool-use loop
+│   └── batch.js             Cron jobs — daily sweep (7AM) + weekly dep mapping (Sun 2AM)
 ├── services/
 │   ├── teamSync.js          Slack channels → teams sync
-│   ├── slackStatus.js       Push HybridSync status to Slack profiles
-│   ├── googleCalendar.js    Google Calendar OAuth, events.watch, meeting-load classifier
-│   ├── notifications.js     DM dependents when a collaborator changes status
-│   └── calendarAlerts.js    Flag WFH conflicts when calendar shows in-person meetings
+│   └── slackStatus.js       Slack profile status sync via user OAuth token
 ├── db/
-│   ├── index.js             Supabase (Postgres) data layer with bulk fetchers
-│   └── schema.sql           6 tables — workspaces, users, teams, overrides, dependencies,
-│                            team_members. Multi-tenant via workspace_id. RLS enabled.
-│                            Applied manually in the Supabase SQL editor (idempotent).
-├── server.js                Express REST API on :3001 — dashboard + OAuth callback +
-│                            /slack/install + /api/google/* + /healthz
-├── instrument.js            Sentry wiring (loaded at boot)
-└── app.js                   Entry point — registers all modules + starts cron
+│   ├── index.js             Supabase (Postgres) data layer
+│   └── schema.sql           4-table schema — users, teams, overrides, dependencies
+├── server.js                Express REST API on :3001 for the React dashboard + OAuth callback
+└── app.js                   Entry point — registers all modules
 
 hybridsync-frontend/         React + Vite admin dashboard
 ├── src/views/
@@ -71,14 +61,13 @@ hybridsync-frontend/         React + Vite admin dashboard
 
 ## AI models used
 
-| Component | Primary | Fallback / retry | Why |
-|---|---|---|---|
-| Status classifier (Stream) | Claude Haiku 4.5 ×3 | Claude Sonnet 4.6 ×1 | Cheap, fast — runs on every channel message; Sonnet kicks in on Haiku overload |
-| DM chatbot | Claude Opus 4.7 + adaptive thinking | Groq `gpt-oss-120b` | Tool use over 6 schedule tools; falls back when Anthropic is unreachable |
-| Orchestrator | Claude Opus 4.7 | — | ReAct loop with adaptive thinking |
-| Weekly dependency mapping | Claude Opus 4.7 | Groq `gpt-oss-120b` | Single JSON-only call; tolerates fallback |
+| Component | Model | Why |
+|---|---|---|
+| Status classifier | Claude Haiku 4.5 | Cheap, fast — runs on every channel message |
+| DM chatbot | Claude Opus 4.7 | Full reasoning for schedule queries + tool use |
+| Orchestrator | Claude Opus 4.7 | ReAct loop with adaptive thinking |
 
-Prompt caching (`cache_control: ephemeral`) is applied to system prompt + tool definitions on Anthropic calls — iteration 2+ of the agent loop and any chat within ~5 min reads tools at ~10% billing rate. Token usage is logged per call to Railway stdout as `[AI:<label>/<provider>] tokens — …`. Groq model is env-overridable via `GROQ_MODEL`.
+Prompt caching is used on static system prompts to reduce token costs.
 
 ---
 
@@ -110,33 +99,17 @@ npm install
 Copy `.env.example` to `.env` and fill in:
 
 ```env
-# Slack — bot token is no longer hard-coded; it's pulled per-workspace
-# from the workspaces table after the OAuth install flow.
+SLACK_BOT_TOKEN=xoxb-...
 SLACK_APP_TOKEN=xapp-...
-SLACK_CLIENT_ID=...
-SLACK_CLIENT_SECRET=...
-SLACK_OAUTH_REDIRECT_URI=http://localhost:3001/api/oauth/callback
-
-# Database
+ANTHROPIC_API_KEY=sk-ant-...
 SUPABASE_URL=https://your-project.supabase.co
 SUPABASE_SERVICE_KEY=eyJ...   # service_role key, not anon
-
-# AI — at least one of these must be set
-ANTHROPIC_API_KEY=sk-ant-...
-GROQ_API_KEY=gsk_...          # fallback when Anthropic fails; chatbot + batch only
-GROQ_MODEL=openai/gpt-oss-120b  # optional, swap without redeploy
-
-# Dashboard auth
 JWT_SECRET=your-secret
 HR_PASSWORD=hr@hybridsync
 MANAGER_PASSWORD=manager@hybridsync
-
-# Google Calendar (optional — per-user OAuth for meeting-load awareness)
-GOOGLE_CLIENT_ID=...
-GOOGLE_CLIENT_SECRET=...
-
-# Observability (optional)
-SENTRY_DSN=...
+SLACK_CLIENT_ID=...
+SLACK_CLIENT_SECRET=...
+SLACK_OAUTH_REDIRECT_URI=http://localhost:3001/api/oauth/callback
 ```
 
 Run the DB schema in the Supabase SQL editor (`db/schema.sql`), then:

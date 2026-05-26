@@ -94,16 +94,17 @@ async function buildHomeView(userId, workspaceId) {
   const deps     = await db.getDependencyGraph(userId);
   const highDeps = deps.filter(d => d.score >= 7).sort((a, b) => b.score - a.score);
 
-  // --- Batched peer fetch — single parallel round trip for all peers ---
-  const weekDateKeys = week.map(w => w.dateKey);
-  const peerEntries = await Promise.all(highDeps.map(async dep => {
-    const [peerUser, peerSchedule] = await Promise.all([
-      db.getUser(dep.peerId),
-      db.getScheduleForDates(dep.peerId, weekDateKeys),
-    ]);
+  // --- Batched peer fetch ---
+  // Schedules for every high-dep peer come back in one bulk query.
+  const weekDateKeys    = week.map(w => w.dateKey);
+  const peerIds         = highDeps.map(d => d.peerId);
+  const peerScheduleMap = await db.getSchedulesForUsers(peerIds, weekDateKeys);
+  const peerEntries = await Promise.all(peerIds.map(async peerId => {
+    const peerUser = await db.getUser(peerId);
     if (!peerUser) return null;
+    const peerSchedule = peerScheduleMap.get(peerId) || [];
     const statusByDate = Object.fromEntries(peerSchedule.map(s => [s.dateKey, s.status]));
-    return [dep.peerId, { user: peerUser, statusByDate }];
+    return [peerId, { user: peerUser, statusByDate }];
   }));
   const peerMap = new Map(peerEntries.filter(Boolean));
 

@@ -318,13 +318,13 @@ app.get('/api/schedule/week', requireAuth, async (req, res) => {
   const dates    = upcomingWorkDays(5);
   const dateKeys = dates.map(d => d.dateKey);
 
-  const map  = await teamNameMap(scoped);
-  const rows = await Promise.all(
-    scoped.map(async u => ({
-      user:     decorateUser(u, map),
-      schedule: await db.getScheduleForDates(u.id, dateKeys),
-    }))
-  );
+  const map         = await teamNameMap(scoped);
+  // One bulk query for all scoped users replaces N per-user fetches.
+  const scheduleMap = await db.getSchedulesForUsers(scoped.map(u => u.id), dateKeys);
+  const rows = scoped.map(u => ({
+    user:     decorateUser(u, map),
+    schedule: scheduleMap.get(u.id) || [],
+  }));
 
   res.json({ dates, rows });
 });

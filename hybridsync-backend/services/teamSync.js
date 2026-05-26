@@ -83,9 +83,12 @@ async function syncTeamsFromChannels(slackClient, workspaceId) {
   }
 
   // Reconcile per-user memberships: drop rows for channels the user is no longer in
-  // (only among channels we just inspected).
+  // (only among channels we just inspected). One bulk fetch for stored
+  // memberships replaces a per-user query inside the loop.
+  const observedIds = Object.keys(observed);
+  const storedMap   = await db.getUserTeamsMap(observedIds);
   for (const [userId, currentSet] of Object.entries(observed)) {
-    const stored = await db.getUserTeams(userId);
+    const stored = storedMap.get(userId) || new Set();
     for (const teamId of stored) {
       if (seenChannels.has(teamId) && !currentSet.has(teamId)) {
         await db.removeUserFromTeam(userId, teamId);

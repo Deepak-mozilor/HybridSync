@@ -241,6 +241,42 @@ async function getScheduleForDates(userId, dateKeys) {
   }));
 }
 
+// Bulk version of getScheduleForDates — one round trip for many users.
+// Returns Map<userId, Array<{dateKey, day, status}>>. Missing users yield an
+// array of nulls so callers can rely on every requested id being present.
+async function getSchedulesForUsers(userIds, dateKeys) {
+  if (!userIds || userIds.length === 0 || !dateKeys || dateKeys.length === 0) {
+    return new Map();
+  }
+  const [usersRes, overRes] = await Promise.all([
+    supabase.from('users').select('id, week').in('id', userIds),
+    supabase.from('overrides')
+      .select('user_id, date_key, status')
+      .in('user_id', userIds)
+      .in('date_key', dateKeys),
+  ]);
+
+  const weekById = Object.fromEntries((usersRes.data || []).map(u => [u.id, u.week || {}]));
+  const overByUser = new Map();
+  for (const o of overRes.data || []) {
+    let m = overByUser.get(o.user_id);
+    if (!m) { m = {}; overByUser.set(o.user_id, m); }
+    m[o.date_key] = o.status;
+  }
+
+  const out = new Map();
+  for (const userId of userIds) {
+    const week    = weekById[userId] || {};
+    const overMap = overByUser.get(userId) || {};
+    out.set(userId, dateKeys.map(dateKey => ({
+      dateKey,
+      day:    dayLabel(dateKey),
+      status: overMap[dateKey] ?? (week[dayLabel(dateKey)] || null),
+    })));
+  }
+  return out;
+}
+
 let _afterSetStatus = null;
 function onStatusChange(fn) { _afterSetStatus = fn; }
 
@@ -291,6 +327,19 @@ async function getUserToken(userId) {
   return data?.slack_user_token || null;
 }
 
+// Bulk variant — Map<userId, token> for every id that has a non-null token.
+// Ids without a token are simply absent from the Map.
+async function getUserTokens(userIds) {
+  if (!userIds || userIds.length === 0) return new Map();
+  const { data, error } = await supabase
+    .from('users')
+    .select('id, slack_user_token')
+    .in('id', userIds)
+    .not('slack_user_token', 'is', null);
+  if (error) throw new Error(`getUserTokens: ${error.message}`);
+  return new Map((data || []).map(u => [u.id, u.slack_user_token]));
+}
+
 async function saveGoogleTokens(userId, tokens) {
   const { error } = await supabase
     .from('users')
@@ -323,6 +372,16 @@ async function getGoogleEmail(userId) {
     .eq('id', userId)
     .maybeSingle();
   return data?.google_email || null;
+}
+
+// Bulk variant — Map<userId, email> for every user in the workspace that has a
+// linked Google account. Replaces looping getGoogleEmail per user.
+async function getGoogleEmailsForWorkspace(workspaceId) {
+  let q = supabase.from('users').select('id, google_email').not('google_email', 'is', null);
+  if (workspaceId) q = q.eq('workspace_id', workspaceId);
+  const { data, error } = await q;
+  if (error) throw new Error(`getGoogleEmailsForWorkspace: ${error.message}`);
+  return new Map((data || []).map(u => [u.id, u.google_email]));
 }
 
 async function clearGoogleConnection(userId) {
@@ -463,6 +522,22 @@ async function getUserTeams(userId) {
     .from('team_members').select('team_id').eq('user_id', userId);
   if (error) throw new Error(`getUserTeams: ${error.message}`);
   return (data || []).map(r => r.team_id);
+}
+
+// Bulk variant — Map<userId, Set<teamId>> for many users in one query.
+// Ids with no memberships are absent from the Map.
+async function getUserTeamsMap(userIds) {
+  if (!userIds || userIds.length === 0) return new Map();
+  const { data, error } = await supabase
+    .from('team_members').select('user_id, team_id').in('user_id', userIds);
+  if (error) throw new Error(`getUserTeamsMap: ${error.message}`);
+  const out = new Map();
+  for (const r of data || []) {
+    let set = out.get(r.user_id);
+    if (!set) { set = new Set(); out.set(r.user_id, set); }
+    set.add(r.team_id);
+  }
+  return out;
 }
 
 async function isTeamManager(userId) {
@@ -608,14 +683,17 @@ module.exports = {
   getAllUsers,
   getStatusForDate,
   getScheduleForDates,
+  getSchedulesForUsers,
   setStatus,
   onStatusChange,
   saveUserToken,
   getUserToken,
+  getUserTokens,
   saveGoogleTokens,
   getGoogleTokens,
   saveGoogleEmail,
   getGoogleEmail,
+  getGoogleEmailsForWorkspace,
   saveGoogleChannel,
   clearGoogleConnection,
   clearSlackUserToken,
@@ -630,6 +708,7 @@ module.exports = {
   addUserToTeam,
   removeUserFromTeam,
   getUserTeams,
+  getUserTeamsMap,
   isTeamManager,
   findUserByName,
   getDependencyGraph,

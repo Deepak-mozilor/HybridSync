@@ -49,13 +49,23 @@ async function syncToProfile(userId, status, dateKey) {
 async function syncAllUsersForToday() {
   const users   = await db.getAllUsers();
   const dateKey = todayKey();
+  const userIds = users.map(u => u.id);
+
+  // Bulk-prefetch tokens + today's status for every user — two queries replace
+  // 2N per-user round trips inside the loop.
+  const [tokenMap, scheduleMap] = await Promise.all([
+    db.getUserTokens(userIds),
+    db.getSchedulesForUsers(userIds, [dateKey]),
+  ]);
+
   let pushed = 0, skippedCustom = 0, skippedNoToken = 0, skippedNoStatus = 0;
 
   for (const u of users) {
-    const token = await db.getUserToken(u.id);
+    const token = tokenMap.get(u.id);
     if (!token) { skippedNoToken++; continue; }
 
-    const status = await db.getStatusForDate(u.id, dateKey);
+    const todayEntry = (scheduleMap.get(u.id) || []).find(s => s.dateKey === dateKey);
+    const status     = todayEntry?.status;
     if (!status || !PROFILES[status]) { skippedNoStatus++; continue; }
 
     try {

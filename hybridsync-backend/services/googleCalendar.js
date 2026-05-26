@@ -79,12 +79,15 @@ async function getMeetingsForDate(userId, dateKey) {
   const unknownCount = classified.filter(e => e.type === 'unknown').length;
 
   // Cross-reference attendee emails with HybridSync users in the same workspace.
+  // One bulk fetch for emails replaces a per-user lookup loop.
   const owner       = await db.getUser(userId).catch(() => null);
   const allUsers    = await db.getAllUsers(owner?.workspaceId);
+  const nameById    = Object.fromEntries(allUsers.map(u => [u.id, u.displayName]));
+  const emailById   = await db.getGoogleEmailsForWorkspace(owner?.workspaceId);
   const emailToName = {};
-  for (const u of allUsers) {
-    const email = await db.getGoogleEmail(u.id).catch(() => null);
-    if (email) emailToName[email.toLowerCase()] = u.displayName;
+  for (const [uid, email] of emailById) {
+    const name = nameById[uid];
+    if (name && email) emailToName[email.toLowerCase()] = name;
   }
 
   return {

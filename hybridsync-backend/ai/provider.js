@@ -86,11 +86,12 @@ async function runWithAnthropic(systemPrompt, userMessage, tools, execTool, prio
   return '';
 }
 
-function logUsage(provider, t) {
+function logUsage(provider, t, label) {
   // Stays in Railway/server logs — never reaches the Slack user.
   const total = t.input + t.output + t.cacheRead + t.cacheWrite;
+  const tag = label ? `AI:${label}/${provider}` : `AI:${provider}`;
   console.log(
-    `[AI:${provider}] tokens — input=${t.input} output=${t.output} ` +
+    `[${tag}] tokens — input=${t.input} output=${t.output} ` +
     `cacheRead=${t.cacheRead} cacheWrite=${t.cacheWrite} total=${total} ` +
     `iterations=${t.iterations}`
   );
@@ -190,7 +191,7 @@ async function runAgentLoop(systemPrompt, userMessage, tools, execTool, priorMes
   return runWithGroq(systemPrompt, userMessage, tools, execTool, priorMessages);
 }
 
-async function completeWithAnthropic(systemPrompt, userMessage) {
+async function completeWithAnthropic(systemPrompt, userMessage, label) {
   const client = new Anthropic();
   const response = await client.messages.create({
     model: 'claude-opus-4-7',
@@ -205,11 +206,11 @@ async function completeWithAnthropic(systemPrompt, userMessage) {
     cacheRead:  u.cache_read_input_tokens || 0,
     cacheWrite: u.cache_creation_input_tokens || 0,
     iterations: 1,
-  });
+  }, label);
   return response.content.find(b => b.type === 'text')?.text || '';
 }
 
-async function completeWithGroq(systemPrompt, userMessage) {
+async function completeWithGroq(systemPrompt, userMessage, label) {
   const client = new OpenAI({
     apiKey: process.env.GROQ_API_KEY,
     baseURL: 'https://api.groq.com/openai/v1',
@@ -228,30 +229,32 @@ async function completeWithGroq(systemPrompt, userMessage) {
     cacheRead:  0,
     cacheWrite: 0,
     iterations: 1,
-  });
+  }, label);
   return response.choices[0].message.content || '';
 }
 
 // Lightweight single-call completion (no tool loop) — used by batch jobs.
-// Mirrors runAgentLoop's fallback behaviour.
-async function complete(systemPrompt, userMessage) {
+// Mirrors runAgentLoop's fallback behaviour. Optional `label` tags the token
+// log line so different code paths can be told apart in Railway logs.
+async function complete(systemPrompt, userMessage, label) {
   const provider = getProvider();
   if (!provider) return null;
 
   if (provider === 'anthropic') {
     try {
-      return await completeWithAnthropic(systemPrompt, userMessage);
+      return await completeWithAnthropic(systemPrompt, userMessage, label);
     } catch (err) {
       if (process.env.GROQ_API_KEY && shouldFallbackFromAnthropic(err)) {
         const status = err?.status || err?.response?.status || 'network';
-        console.warn(`[AI:complete] Anthropic failed (status=${status}) — falling back to Groq`);
-        return completeWithGroq(systemPrompt, userMessage);
+        const tag = label ? `AI:${label}:complete` : 'AI:complete';
+        console.warn(`[${tag}] Anthropic failed (status=${status}) — falling back to Groq`);
+        return completeWithGroq(systemPrompt, userMessage, label);
       }
       throw err;
     }
   }
 
-  return completeWithGroq(systemPrompt, userMessage);
+  return completeWithGroq(systemPrompt, userMessage, label);
 }
 
 module.exports = { runAgentLoop, complete, getProvider };

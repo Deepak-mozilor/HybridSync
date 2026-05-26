@@ -203,8 +203,22 @@ Output ONLY a JSON array (no prose), one entry per input row:
 [{"userId":"A","peerId":"B","score":N}, ...]
 Use userId = the row's first user (the dependent) and peerId = the row's second user.`;
 
-  console.log('[WeeklyMapping] Starting dependency graph rebuild...');
-  const raw = await complete('You are HybridSync\'s dependency graph calculator. Output only valid JSON.', prompt);
+  // Rough token estimate: ~4 chars per token is the usual heuristic.
+  const promptChars  = prompt.length;
+  const promptTokensEst = Math.round(promptChars / 4);
+  console.log(
+    `[WeeklyMapping] Starting dependency graph rebuild — ` +
+    `workspace=${workspaceId} rows=${fullRows.length} ` +
+    `promptChars=${promptChars} estInputTokens=~${promptTokensEst}`
+  );
+  const startedAt = Date.now();
+  const raw = await complete(
+    'You are HybridSync\'s dependency graph calculator. Output only valid JSON.',
+    prompt,
+    'WeeklyMapping'
+  );
+  const elapsedMs = Date.now() - startedAt;
+  console.log(`[WeeklyMapping] AI call complete in ${elapsedMs}ms (rawLen=${raw?.length || 0})`);
   if (!raw) return;
 
   try {

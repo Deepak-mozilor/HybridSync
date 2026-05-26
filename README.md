@@ -81,54 +81,22 @@ Prompt caching is used on static system prompts to reduce token costs.
 
 ---
 
-## Getting started
+## Live deployment
 
-### Prerequisites
-- Node.js 18+
-- A Slack workspace with a Slack app (Socket Mode enabled)
-- Supabase project
-- Anthropic API key
+- **Dashboard:** <https://hybrid-sync.vercel.app>
+- **Backend:** <https://hybridsync-backend-production.up.railway.app>
 
-### Backend setup
+The frontend is hosted on Vercel, the backend + Slack Bolt + cron jobs on Railway, and the database on Supabase. No local setup is needed to use the product.
 
-```bash
-cd hybridsync-backend
-npm install
-```
+## Signing in
 
-Copy `.env.example` to `.env` and fill in:
+The dashboard uses **Sign in with Slack** (OpenID Connect) — there are no usernames or passwords.
 
-```env
-SLACK_BOT_TOKEN=xoxb-...
-SLACK_APP_TOKEN=xapp-...
-ANTHROPIC_API_KEY=sk-ant-...
-SUPABASE_URL=https://your-project.supabase.co
-SUPABASE_SERVICE_KEY=eyJ...   # service_role key, not anon
-JWT_SECRET=your-secret
-HR_PASSWORD=hr@hybridsync
-MANAGER_PASSWORD=manager@hybridsync
-SLACK_CLIENT_ID=...
-SLACK_CLIENT_SECRET=...
-SLACK_OAUTH_REDIRECT_URI=http://localhost:3001/api/oauth/callback
-```
+1. Open the dashboard at <https://hybrid-sync.vercel.app>.
+2. Click **Sign in with Slack** and approve the consent screen.
+3. Your role (Admin / Manager / User) and team scope are taken from your Slack identity and the HybridSync user record in the workspace you belong to. Admins see the full organisation; managers see their team.
 
-Run the DB schema in the Supabase SQL editor (`db/schema.sql`), then:
-
-```bash
-node app.js
-```
-
-### Frontend setup
-
-```bash
-cd hybridsync-frontend
-npm install
-npm run dev
-```
-
-Dashboard runs at `http://localhost:5173`. Default credentials:
-- HR Admin: password `hr@hybridsync`
-- Team Manager: password `manager@hybridsync`
+If your workspace hasn't installed the Slack app yet, use **+ Add HybridSync to your Slack workspace** on the login screen — that flow is at `/slack/install` on the backend.
 
 ### Slack app required scopes
 
@@ -138,14 +106,13 @@ Dashboard runs at `http://localhost:5173`. Default credentials:
 
 **Event subscriptions:** `message.channels`, `message.groups`, `message.im`, `app_home_opened`, `member_joined_channel`
 
-### Slack status sync (optional)
+### Connecting your own Slack profile / Google Calendar
 
-Users can connect their Slack account from the App Home to enable automatic Slack profile status updates. Requires a public HTTPS redirect URI — use ngrok for local development:
+From the HybridSync App Home tab in Slack, use:
+- **Connect Slack Status** — lets HybridSync update your Slack profile emoji to match your hybrid-work status.
+- **Connect Google Calendar** — adds meeting-load awareness to your schedule and the chatbot's recommendations.
 
-```bash
-ngrok http 3001
-# Update SLACK_OAUTH_REDIRECT_URI in .env and in Slack app OAuth settings
-```
+Both flows go through the deployed backend's OAuth callback; nothing on your machine is required.
 
 ---
 

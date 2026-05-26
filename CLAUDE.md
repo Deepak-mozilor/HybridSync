@@ -88,6 +88,6 @@ Bolt's built-in install server is unreachable behind single-port platforms like 
 
 ## Outdated information to ignore
 
-- `README.md` describes the Stream as regex-only — it has been AI-classified for a while now.
-- `hybridsync_master_context.md` mentions Firebase as the database. The real DB is Supabase Postgres. The doc is a historical artefact from the hackathon kickoff; do not treat it as source of truth.
+- `hybridsync_master_context.md` is a historical artefact from the hackathon kickoff — do not treat it as source of truth. It says the Stream is regex-only with no AI (it is now Haiku-classified) and that the DB is Firebase (it is Supabase Postgres).
+- `README.md` is mostly current but has a few drift points: it says the chatbot has 4 tools (now 6), describes "the 4-table schema" (now 5+ — workspaces + team_members were added), and its AI-models table predates the Groq fallback.
 - `ARCHITECTURE.html` at the repo root is the current end-to-end diagram (data flows, AI pipeline, DB indexes, bulk fetchers). Update it when the data flows change.

@@ -142,42 +142,63 @@ function getProvider() {
   return null;
 }
 
+// Errors where Anthropic clearly can't serve this call but Groq might.
+// 401/403 = key/permission, 429 = rate limit, 5xx = upstream outage, no status
+// at all = network failure. 400 / 404 stay un-fallbacked because they signal a
+// bug in our request shape (model name typo, malformed messages) that Groq
+// would hit the same way.
+function shouldFallbackFromAnthropic(err) {
+  const status = err?.status || err?.response?.status;
+  if (!status) return true;
+  return status === 401 || status === 403 || status === 429 || status >= 500;
+}
+
 async function runAgentLoop(systemPrompt, userMessage, tools, execTool, priorMessages = []) {
   const provider = getProvider();
   if (!provider) {
     console.log('[AI] No valid API key found — skipping AI features.');
     return null;
   }
-  console.log(`[AI] Using provider: ${provider}`);
-  if (provider === 'anthropic') return runWithAnthropic(systemPrompt, userMessage, tools, execTool, priorMessages);
+
+  if (provider === 'anthropic') {
+    try {
+      console.log('[AI] Using provider: anthropic');
+      return await runWithAnthropic(systemPrompt, userMessage, tools, execTool, priorMessages);
+    } catch (err) {
+      if (process.env.GROQ_API_KEY && shouldFallbackFromAnthropic(err)) {
+        const status = err?.status || err?.response?.status || 'network';
+        const type   = err?.error?.error?.type || err?.error?.type || err?.constructor?.name;
+        console.warn(`[AI] Anthropic failed (status=${status}, type=${type}) — falling back to Groq`);
+        return runWithGroq(systemPrompt, userMessage, tools, execTool, priorMessages);
+      }
+      throw err;
+    }
+  }
+
+  console.log('[AI] Using provider: groq');
   return runWithGroq(systemPrompt, userMessage, tools, execTool, priorMessages);
 }
 
-// Lightweight single-call completion (no tool loop) — used by batch jobs
-async function complete(systemPrompt, userMessage) {
-  const provider = getProvider();
-  if (!provider) return null;
+async function completeWithAnthropic(systemPrompt, userMessage) {
+  const client = new Anthropic();
+  const response = await client.messages.create({
+    model: 'claude-opus-4-7',
+    max_tokens: 2048,
+    system: [{ type: 'text', text: systemPrompt, cache_control: { type: 'ephemeral' } }],
+    messages: [{ role: 'user', content: userMessage }],
+  });
+  const u = response.usage || {};
+  logUsage('anthropic', {
+    input:      u.input_tokens || 0,
+    output:     u.output_tokens || 0,
+    cacheRead:  u.cache_read_input_tokens || 0,
+    cacheWrite: u.cache_creation_input_tokens || 0,
+    iterations: 1,
+  });
+  return response.content.find(b => b.type === 'text')?.text || '';
+}
 
-  if (provider === 'anthropic') {
-    const client = new Anthropic();
-    const response = await client.messages.create({
-      model: 'claude-opus-4-7',
-      max_tokens: 2048,
-      system: [{ type: 'text', text: systemPrompt, cache_control: { type: 'ephemeral' } }],
-      messages: [{ role: 'user', content: userMessage }],
-    });
-    const u = response.usage || {};
-    logUsage('anthropic', {
-      input:      u.input_tokens || 0,
-      output:     u.output_tokens || 0,
-      cacheRead:  u.cache_read_input_tokens || 0,
-      cacheWrite: u.cache_creation_input_tokens || 0,
-      iterations: 1,
-    });
-    return response.content.find(b => b.type === 'text')?.text || '';
-  }
-
-  // Groq
+async function completeWithGroq(systemPrompt, userMessage) {
   const client = new OpenAI({
     apiKey: process.env.GROQ_API_KEY,
     baseURL: 'https://api.groq.com/openai/v1',
@@ -198,6 +219,28 @@ async function complete(systemPrompt, userMessage) {
     iterations: 1,
   });
   return response.choices[0].message.content || '';
+}
+
+// Lightweight single-call completion (no tool loop) — used by batch jobs.
+// Mirrors runAgentLoop's fallback behaviour.
+async function complete(systemPrompt, userMessage) {
+  const provider = getProvider();
+  if (!provider) return null;
+
+  if (provider === 'anthropic') {
+    try {
+      return await completeWithAnthropic(systemPrompt, userMessage);
+    } catch (err) {
+      if (process.env.GROQ_API_KEY && shouldFallbackFromAnthropic(err)) {
+        const status = err?.status || err?.response?.status || 'network';
+        console.warn(`[AI:complete] Anthropic failed (status=${status}) — falling back to Groq`);
+        return completeWithGroq(systemPrompt, userMessage);
+      }
+      throw err;
+    }
+  }
+
+  return completeWithGroq(systemPrompt, userMessage);
 }
 
 module.exports = { runAgentLoop, complete, getProvider };

@@ -181,6 +181,28 @@ async function getUser(userId) {
   return toUser(data, teamIds);
 }
 
+// Bulk variant — Map<userId, User> in two queries (users + team_members), same
+// shape as getUser. Ids not found are absent from the Map. Mirrors the pattern
+// in getAllUsers but scoped to an explicit id list.
+async function getUsers(userIds) {
+  if (!userIds || userIds.length === 0) return new Map();
+  const [usersRes, membersRes] = await Promise.all([
+    supabase.from('users').select('*').in('id', userIds),
+    supabase.from('team_members').select('user_id, team_id').in('user_id', userIds),
+  ]);
+  if (usersRes.error)   throw new Error(`getUsers: ${usersRes.error.message}`);
+  if (membersRes.error) throw new Error(`getUsers (memberships): ${membersRes.error.message}`);
+
+  const teamsByUser = {};
+  for (const m of membersRes.data || []) {
+    if (!teamsByUser[m.user_id]) teamsByUser[m.user_id] = [];
+    teamsByUser[m.user_id].push(m.team_id);
+  }
+  return new Map(
+    (usersRes.data || []).map(row => [row.id, toUser(row, teamsByUser[row.id] || [])])
+  );
+}
+
 async function getAllUsers(workspaceId) {
   const usersQ   = supabase.from('users').select('*');
   const membersQ = supabase.from('team_members').select('user_id, team_id');
@@ -707,6 +729,7 @@ module.exports = {
   updateUserTeam,
   addUserToTeam,
   removeUserFromTeam,
+  getUsers,
   getUserTeams,
   getUserTeamsMap,
   isTeamManager,

@@ -129,6 +129,17 @@ CREATE INDEX IF NOT EXISTS overrides_workspace_idx    ON overrides(workspace_id)
 CREATE INDEX IF NOT EXISTS dependencies_workspace_idx ON dependencies(workspace_id);
 CREATE INDEX IF NOT EXISTS team_members_workspace_idx ON team_members(workspace_id);
 
+-- Hot-path indexes for the bulk fetchers + isTeamManager.
+-- overrides_user_date: backs getScheduleForDates / getSchedulesForUsers
+--   (both filter by user_id + date_key, with date_key as an IN list).
+-- team_members_user_idx: backs getUserTeams / getUserTeamsMap (user_id lookups);
+--   the existing PK is (user_id, team_id) so user_id is already the leading
+--   column, but a dedicated index is cheaper for the IN-list bulk variant.
+-- teams_manager_workspace_idx: backs isTeamManager (manager_id + workspace_id).
+CREATE INDEX IF NOT EXISTS overrides_user_date_idx       ON overrides(user_id, date_key);
+CREATE INDEX IF NOT EXISTS team_members_user_idx         ON team_members(user_id);
+CREATE INDEX IF NOT EXISTS teams_manager_workspace_idx   ON teams(manager_id, workspace_id);
+
 -- ---------------------------------------------------------------------------
 -- Row-Level Security — defence in depth.
 -- The backend uses the Supabase service_role key which bypasses RLS, so this

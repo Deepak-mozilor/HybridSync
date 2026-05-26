@@ -71,15 +71,28 @@ function buildConnectOAuthUrl(userId) {
 }
 
 async function buildHomeView(userId, workspaceId) {
-  const user       = await db.ensureUser(userId, { workspaceId });
+  const user         = await db.ensureUser(userId, { workspaceId });
   // Multi-team membership: union teamIds[] with legacy primary teamId.
-  const teamIds    = [...new Set([...(user.teamIds || []), ...(user.teamId ? [user.teamId] : [])])];
-  const userTeams  = (await Promise.all(teamIds.map(id => db.getTeam(id)))).filter(Boolean);
+  const teamIds      = [...new Set([...(user.teamIds || []), ...(user.teamId ? [user.teamId] : [])])];
+  const week         = upcomingWorkDays(5);
+  const today        = todayKey();
+  const weekDateKeys = week.map(w => w.dateKey);
+
+  // First parallel fan-out — everything that only needs userId/teamIds. None
+  // of these depend on each other, so they run as one round trip's worth of
+  // wall time instead of six.
+  const [userTeams, schedule, deps, userToken, googleTokens, isManager] = await Promise.all([
+    Promise.all(teamIds.map(id => db.getTeam(id))).then(arr => arr.filter(Boolean)),
+    db.getScheduleForDates(userId, weekDateKeys),
+    db.getDependencyGraph(userId),
+    db.getUserToken(userId),
+    db.getGoogleTokens(userId),
+    db.isTeamManager(userId),
+  ]);
+
   const team       = userTeams.find(t => t.id === user.teamId) || userTeams[0] || null;
   const anchorDays = [...new Set(userTeams.flatMap(t => t.anchorDays || []))];
-  const week       = upcomingWorkDays(5);
-  const today      = todayKey();
-  const schedule   = await db.getScheduleForDates(userId, week.map(w => w.dateKey));
+
   const todayEntry  = schedule.find(s => s.dateKey === today);
   const todayStatus = todayEntry?.status || 'Unknown';
   const todayEmoji  = STATUS_EMOJI[todayStatus] || '❓';
@@ -90,46 +103,34 @@ async function buildHomeView(userId, workspaceId) {
   const isAnchorToday = anchorDays.includes(todayEntry?.day);
   const roleLabel     = user.role === 'product_manager' ? ' _(PM)_' : user.role === 'engineer' ? ' _(Eng)_' : '';
 
-  // --- Core collaborators ---
-  const deps     = await db.getDependencyGraph(userId);
-  const highDeps = deps.filter(d => d.score >= 7).sort((a, b) => b.score - a.score);
-
-  // --- Batched peer fetch ---
-  // Schedules for every high-dep peer come back in one bulk query.
-  const weekDateKeys    = week.map(w => w.dateKey);
+  const highDeps        = deps.filter(d => d.score >= 7).sort((a, b) => b.score - a.score);
   const peerIds         = highDeps.map(d => d.peerId);
-  const peerScheduleMap = await db.getSchedulesForUsers(peerIds, weekDateKeys);
-  const peerEntries = await Promise.all(peerIds.map(async peerId => {
-    const peerUser = await db.getUser(peerId);
-    if (!peerUser) return null;
-    const peerSchedule = peerScheduleMap.get(peerId) || [];
-    const statusByDate = Object.fromEntries(peerSchedule.map(s => [s.dateKey, s.status]));
-    return [peerId, { user: peerUser, statusByDate }];
-  }));
-  const peerMap = new Map(peerEntries.filter(Boolean));
-
-  // --- Slack status sync connection status ---
-  const userToken     = await db.getUserToken(userId);
-  const isConnected   = !!userToken;
-  const oauthUrl      = buildConnectOAuthUrl(userId);
-
-  // --- Google Calendar ---
-  const googleTokens    = await db.getGoogleTokens(userId);
+  const isConnected     = !!userToken;
+  const oauthUrl        = buildConnectOAuthUrl(userId);
   const googleConnected = !!googleTokens;
-  const googleAuthUrl = process.env.GOOGLE_CLIENT_ID
+  const googleAuthUrl   = process.env.GOOGLE_CLIENT_ID
     ? `${process.env.SLACK_OAUTH_REDIRECT_URI?.replace('/api/oauth/callback', '') || 'http://localhost:3001'}/api/google/auth?state=${userId}`
     : null;
 
-  // Fetch meeting load for all week days in parallel (today + rest of week)
-  const userMeetingByDate = {};
-  if (googleConnected) {
-    const loads = await Promise.all(
-      weekDateKeys.map(async dateKey => {
-        const load = await getMeetingsForDate(userId, dateKey).catch(() => null);
-        return [dateKey, load];
-      })
-    );
-    loads.forEach(([dateKey, load]) => { if (load) userMeetingByDate[dateKey] = load; });
+  // Second parallel fan-out — peer rows, peer schedules, and (optionally) the
+  // user's weekly meeting load all depend only on what we already have above.
+  const [peerScheduleMap, peerUserMap, userMeetingByDate] = await Promise.all([
+    db.getSchedulesForUsers(peerIds, weekDateKeys),
+    db.getUsers(peerIds),
+    googleConnected
+      ? Promise.all(weekDateKeys.map(dk =>
+          getMeetingsForDate(userId, dk).catch(() => null).then(load => [dk, load])
+        )).then(entries => Object.fromEntries(entries.filter(([, l]) => l)))
+      : Promise.resolve({}),
+  ]);
+
+  const peerMap = new Map();
+  for (const peerId of peerIds) {
+    const peerUser = peerUserMap.get(peerId);
+    if (!peerUser) continue;
+    const peerSchedule = peerScheduleMap.get(peerId) || [];
+    const statusByDate = Object.fromEntries(peerSchedule.map(s => [s.dateKey, s.status]));
+    peerMap.set(peerId, { user: peerUser, statusByDate });
   }
   const meetingLoad = userMeetingByDate[today] || null;
 
@@ -222,7 +223,6 @@ async function buildHomeView(userId, workspaceId) {
   }
 
   // --- Dashboard link (admins + team managers) ---
-  const isManager       = await db.isTeamManager(userId);
   const showDashboard   = (user.role === 'admin' || isManager) && process.env.FRONTEND_URL;
   const dashboardLabel  = user.role === 'admin' ? '🔗 Open Admin Dashboard' : '🔗 Open Manager Dashboard';
   const dashboardBlocks = showDashboard ? [{

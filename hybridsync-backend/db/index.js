@@ -398,10 +398,15 @@ async function getGoogleEmail(userId) {
 
 // Bulk variant — Map<userId, email> for every user in the workspace that has a
 // linked Google account. Replaces looping getGoogleEmail per user.
+// Refuses to fetch across workspaces — a missing workspaceId returns an empty
+// Map rather than silently leaking emails from every tenant.
 async function getGoogleEmailsForWorkspace(workspaceId) {
-  let q = supabase.from('users').select('id, google_email').not('google_email', 'is', null);
-  if (workspaceId) q = q.eq('workspace_id', workspaceId);
-  const { data, error } = await q;
+  if (!workspaceId) return new Map();
+  const { data, error } = await supabase
+    .from('users')
+    .select('id, google_email')
+    .not('google_email', 'is', null)
+    .eq('workspace_id', workspaceId);
   if (error) throw new Error(`getGoogleEmailsForWorkspace: ${error.message}`);
   return new Map((data || []).map(u => [u.id, u.google_email]));
 }

@@ -49,15 +49,29 @@ async function runWithAnthropic(systemPrompt, userMessage, tools, execTool, prio
 
   const totals = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, iterations: 0 };
 
+  // Tracks whether a tool with side effects has already executed. If Anthropic
+  // fails mid-loop after we've already run set_my_status (or any other
+  // mutating tool), retrying the whole call against Groq would re-execute the
+  // same tool — duplicate DB writes are idempotent but downstream DMs from
+  // orchestrator / notifyDependents are not. We tag the error so the caller
+  // skips fallback in that case.
+  let executedAny = false;
+
   for (let i = 0; i < 8; i++) {
-    const response = await client.messages.create({
-      model: 'claude-opus-4-7',
-      max_tokens: 4096,
-      thinking: { type: 'adaptive' },
-      system: [{ type: 'text', text: systemPrompt, cache_control: { type: 'ephemeral' } }],
-      tools: cachedTools,
-      messages,
-    });
+    let response;
+    try {
+      response = await client.messages.create({
+        model: 'claude-opus-4-7',
+        max_tokens: 4096,
+        thinking: { type: 'adaptive' },
+        system: [{ type: 'text', text: systemPrompt, cache_control: { type: 'ephemeral' } }],
+        tools: cachedTools,
+        messages,
+      });
+    } catch (err) {
+      if (executedAny) err.noFallback = true;
+      throw err;
+    }
 
     const u = response.usage || {};
     totals.input      += u.input_tokens || 0;
@@ -77,6 +91,7 @@ async function runWithAnthropic(systemPrompt, userMessage, tools, execTool, prio
     const toolResults = [];
     for (const block of response.content.filter(b => b.type === 'tool_use')) {
       const result = await execTool(block.name, block.input);
+      executedAny = true;
       toolResults.push({ type: 'tool_result', tool_use_id: block.id, content: result });
     }
     messages.push({ role: 'user', content: toolResults });
@@ -177,6 +192,14 @@ async function runAgentLoop(systemPrompt, userMessage, tools, execTool, priorMes
       console.log('[AI] Using provider: anthropic');
       return await runWithAnthropic(systemPrompt, userMessage, tools, execTool, priorMessages);
     } catch (err) {
+      // err.noFallback is set by runWithAnthropic when a side-effectful tool
+      // already executed in this call. Retrying via Groq from scratch would
+      // re-emit the same tool and double-fire orchestrator / notifyDependents
+      // DMs, so we surface the original error instead.
+      if (err.noFallback) {
+        console.warn('[AI] Anthropic failed after tool execution — not falling back to avoid duplicate side effects');
+        throw err;
+      }
       if (process.env.GROQ_API_KEY && shouldFallbackFromAnthropic(err)) {
         const status = err?.status || err?.response?.status || 'network';
         const type   = err?.error?.error?.type || err?.error?.type || err?.constructor?.name;

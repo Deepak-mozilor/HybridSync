@@ -7,6 +7,16 @@
 const Anthropic = require('@anthropic-ai/sdk');
 const { OpenAI } = require('openai');
 
+// Groq model is env-overridable so we can hot-swap without a redeploy when one
+// model regresses on tool calls. Default is Kimi K2 — historically the most
+// reliable tool-use model on Groq. Other strong candidates if Kimi misbehaves:
+//   meta-llama/llama-4-maverick-17b-128e-instruct
+//   meta-llama/llama-4-scout-17b-16e-instruct
+//   gpt-oss-120b
+// Avoid llama-3.3-70b-versatile for tool-heavy prompts — its <function=...>
+// text-format tool calls trip the Groq server-side parser.
+const GROQ_MODEL = process.env.GROQ_MODEL || 'moonshotai/kimi-k2-instruct';
+
 // Convert Anthropic-style tool definitions to OpenAI/Groq format
 function toOpenAITools(tools) {
   return tools.map(t => ({
@@ -102,7 +112,7 @@ async function runWithGroq(systemPrompt, userMessage, tools, execTool, priorMess
 
   for (let i = 0; i < 8; i++) {
     const response = await client.chat.completions.create({
-      model: 'llama-3.3-70b-versatile',
+      model: GROQ_MODEL,
       messages,
       tools: openAITools,
       tool_choice: 'auto',
@@ -204,7 +214,7 @@ async function completeWithGroq(systemPrompt, userMessage) {
     baseURL: 'https://api.groq.com/openai/v1',
   });
   const response = await client.chat.completions.create({
-    model: 'llama-3.3-70b-versatile',
+    model: GROQ_MODEL,
     messages: [
       { role: 'system', content: systemPrompt },
       { role: 'user', content: userMessage },
